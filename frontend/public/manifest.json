@@ -1,0 +1,15 @@
+{
+  "short_name": "AI 여행 플래너",
+  "name": "AI 기반 여행 플래너 - 맞춤형 여행 계획과 숙박 추천",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+} 
