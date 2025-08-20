@@ -57,22 +57,22 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="text-center mb-8">
-        <h2 className="text-3xl font-bold text-gray-900 mb-4">
+    <div className="planner-container">
+      <div className="planner-header">
+        <h2 className="planner-title">
           당신만의 맞춤 여행 계획을 만들어보세요
         </h2>
-        <p className="text-lg text-gray-600">
+        <p className="planner-subtitle">
           AI가 추천하는 최적의 여행 코스와 숙박 정보를 제공합니다
         </p>
       </div>
 
-      <div className="card">
-        <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="planner-form">
+        <form onSubmit={handleSubmit} className="gap-6">
           {/* 목적지 입력 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <MapPin className="inline h-4 w-4 mr-2" />
+          <div className="form-section">
+            <label className="form-label">
+              <MapPin />
               여행하고 싶은 지역
             </label>
             <input
@@ -81,16 +81,16 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
               value={formData.destination}
               onChange={handleInputChange}
               placeholder="예: 제주도, 부산, 도쿄, 파리..."
-              className="input-field"
+              className="form-input"
               required
             />
           </div>
 
           {/* 날짜 선택 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Calendar className="inline h-4 w-4 mr-2" />
+          <div className="form-grid">
+            <div className="form-section">
+              <label className="form-label">
+                <Calendar />
                 출발일
               </label>
               <input
@@ -98,13 +98,13 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
                 name="start_date"
                 value={formData.start_date}
                 onChange={handleInputChange}
-                className="input-field"
+                className="form-input"
                 required
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Calendar className="inline h-4 w-4 mr-2" />
+            <div className="form-section">
+              <label className="form-label">
+                <Calendar />
                 도착일
               </label>
               <input
@@ -112,23 +112,23 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
                 name="end_date"
                 value={formData.end_date}
                 onChange={handleInputChange}
-                className="input-field"
+                className="form-input"
                 required
               />
             </div>
           </div>
 
           {/* 예산 선택 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <DollarSign className="inline h-4 w-4 mr-2" />
+          <div className="form-section">
+            <label className="form-label">
+              <DollarSign />
               예산
             </label>
             <select
               name="budget"
               value={formData.budget}
               onChange={handleInputChange}
-              className="input-field"
+              className="form-select"
             >
               <option value="저예산">저예산</option>
               <option value="보통">보통</option>
@@ -138,33 +138,33 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           </div>
 
           {/* 투숙객 및 객실 수 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Users className="inline h-4 w-4 mr-2" />
+          <div className="form-grid">
+            <div className="form-section">
+              <label className="form-label">
+                <Users />
                 투숙객 수
               </label>
               <select
                 name="guests"
                 value={formData.guests}
                 onChange={handleInputChange}
-                className="input-field"
+                className="form-select"
               >
                 {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
                   <option key={num} value={num}>{num}명</option>
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Bed className="inline h-4 w-4 mr-2" />
+            <div className="form-section">
+              <label className="form-label">
+                <Bed />
                 객실 수
               </label>
               <select
                 name="rooms"
                 value={formData.rooms}
                 onChange={handleInputChange}
-                className="input-field"
+                className="form-select"
               >
                 {[1, 2, 3, 4, 5].map(num => (
                   <option key={num} value={num}>{num}개</option>
@@ -174,21 +174,21 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           </div>
 
           {/* 관심사 선택 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Heart className="inline h-4 w-4 mr-2" />
+          <div className="form-section">
+            <label className="form-label">
+              <Heart />
               관심사 (선택사항)
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="interests-grid">
               {interestOptions.map((interest) => (
-                <label key={interest} className="flex items-center space-x-2 cursor-pointer">
+                <label key={interest} className="checkbox-label">
                   <input
                     type="checkbox"
                     checked={formData.interests.includes(interest)}
                     onChange={() => handleInterestToggle(interest)}
-                    className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                    className="form-checkbox"
                   />
-                  <span className="text-sm text-gray-700">{interest}</span>
+                  <span className="checkbox-text">{interest}</span>
                 </label>
               ))}
             </div>
@@ -199,18 +199,16 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             <button
               type="submit"
               disabled={loading}
-              className={`w-full btn-primary flex items-center justify-center space-x-2 ${
-                loading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+              className={`submit-button ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  <div className="loading-spinner"></div>
                   <span>AI가 여행 계획을 만들고 있습니다...</span>
                 </>
               ) : (
                 <>
-                  <Search className="h-5 w-5" />
+                  <Search />
                   <span>여행 계획 생성하기</span>
                 </>
               )}
@@ -220,12 +218,12 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       </div>
 
       {/* 사용 팁 */}
-      <div className="mt-8 p-6 bg-blue-50 rounded-xl border border-blue-200">
-        <h3 className="text-lg font-semibold text-blue-900 mb-3">💡 사용 팁</h3>
-        <ul className="text-blue-800 space-y-2 text-sm">
-          <li>• 구체적인 지역명을 입력하면 더 정확한 계획을 받을 수 있습니다</li>
-          <li>• 관심사를 선택하면 취향에 맞는 여행 코스가 추천됩니다</li>
-          <li>• 예산을 설정하면 그에 맞는 숙박과 활동을 추천받을 수 있습니다</li>
+      <div className="tips-section">
+        <h3 className="tips-title">💡 사용 팁</h3>
+        <ul className="tips-list">
+          <li className="tips-item">• 구체적인 지역명을 입력하면 더 정확한 계획을 받을 수 있습니다</li>
+          <li className="tips-item">• 관심사를 선택하면 취향에 맞는 여행 코스가 추천됩니다</li>
+          <li className="tips-item">• 예산을 설정하면 그에 맞는 숙박과 활동을 추천받을 수 있습니다</li>
         </ul>
       </div>
     </div>

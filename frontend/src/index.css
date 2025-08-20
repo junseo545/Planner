@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 공통 스타일 import */
+@import './styles/common.css';
+@import './styles/App.css';
+@import './styles/Header.css';
+@import './styles/TripPlanner.css';
+@import './styles/TripResult.css';
+
 @layer base {
   body {
     font-family: 'Inter', system-ui, sans-serif;
@@ -9,6 +16,7 @@
 }
 
 @layer components {
+  /* 기존 Tailwind 컴포넌트 스타일 유지 */
   .btn-primary {
     @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200;
   }

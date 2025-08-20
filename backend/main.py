@@ -17,6 +17,7 @@ import logging  # 로그 기록용
 from datetime import datetime, timedelta  # 날짜와 시간 처리용
 import urllib.parse  # URL 인코딩용
 
+
 # ========================================
 # 로깅 설정 (로그: 프로그램 실행 과정을 기록하는 것)
 # ========================================
@@ -338,7 +339,7 @@ class EventService:
 class HotelSearchService:
     """호텔 검색 및 예약 링크 생성 서비스"""
     
-    @staticmethod
+    @staticmethod #인스턴스를 통해서 호출했습니다 이번에는 인스턴스를 통하지 않고 클래스에서 바로 호출할 수 있는 정적 메서드
     def get_popular_hotels(destination: str) -> List[dict]:
         """목적지별 인기 호텔 정보를 제공하는 메서드"""
         # 실제 인기 호텔 데이터베이스 (더 많은 호텔을 추가할 수 있습니다)

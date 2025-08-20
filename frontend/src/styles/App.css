@@ -1,0 +1,48 @@
+/* App.css - 메인 앱 컨테이너 스타일 */
+
+.app-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+}
+
+.app-main {
+  container-type: inline-size;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+/* 반응형 컨테이너 */
+@container (min-width: 640px) {
+  .app-main {
+    padding: 2rem;
+  }
+}
+
+@container (min-width: 1024px) {
+  .app-main {
+    padding: 2rem 4rem;
+  }
+}
+
+/* 로딩 상태 애니메이션 */
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 그라데이션 배경 */
+.gradient-bg {
+  background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+}
+
+.gradient-bg-alt {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+}

@@ -1,0 +1,672 @@
+/* TripResult.css - 여행 결과 표시 스타일 */
+
+.result-container {
+  max-width: 72rem;
+  margin: 0 auto;
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+.back-button {
+  background-color: #e5e7eb;
+  color: #374151;
+  font-weight: 500;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.back-button:hover {
+  background-color: #d1d5db;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.action-button {
+  background-color: #e5e7eb;
+  color: #374151;
+  font-weight: 500;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.action-button:hover {
+  background-color: #d1d5db;
+}
+
+.action-button svg {
+  height: 1rem;
+  width: 1rem;
+}
+
+/* 여행 개요 */
+.overview-card {
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 1.5rem;
+  border: 1px solid #f3f4f6;
+  margin-bottom: 2rem;
+}
+
+.overview-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.overview-title {
+  color: #111827;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.overview-subtitle {
+  color: #4b5563;
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+.overview-item {
+  text-align: center;
+  padding: 1rem;
+  border-radius: 0.5rem;
+}
+
+.overview-item.blue {
+  background-color: #eff6ff;
+}
+
+.overview-item.green {
+  background-color: #f0fdf4;
+}
+
+.overview-item.purple {
+  background-color: #faf5ff;
+}
+
+.overview-icon {
+  height: 2rem;
+  width: 2rem;
+  margin: 0 auto 0.5rem;
+}
+
+.overview-icon.blue {
+  color: #2563eb;
+}
+
+.overview-icon.green {
+  color: #16a34a;
+}
+
+.overview-icon.purple {
+  color: #9333ea;
+}
+
+.overview-label {
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 0.25rem;
+}
+
+.overview-value {
+  color: #4b5563;
+}
+
+/* 상세 일정 */
+.itinerary-card {
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 1.5rem;
+  border: 1px solid #f3f4f6;
+  margin-bottom: 2rem;
+}
+
+.itinerary-title {
+  color: #111827;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.itinerary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.itinerary-day {
+  border-left: 4px solid #3b82f6;
+  padding-left: 1.5rem;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.day-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.day-badge {
+  background-color: #3b82f6;
+  color: #ffffff;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.day-date {
+  margin-left: 0.75rem;
+  color: #6b7280;
+}
+
+.day-schedule {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.schedule-item {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+}
+
+.schedule-item.morning {
+  background-color: #eff6ff;
+}
+
+.schedule-item.afternoon {
+  background-color: #fef3c7;
+}
+
+.schedule-item.evening {
+  background-color: #faf5ff;
+}
+
+.schedule-item.accommodation {
+  background-color: #f3f4f6;
+}
+
+.schedule-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.schedule-title.morning {
+  color: #1e40af;
+}
+
+.schedule-title.afternoon {
+  color: #92400e;
+}
+
+.schedule-title.evening {
+  color: #7c3aed;
+}
+
+.schedule-title.accommodation {
+  color: #374151;
+}
+
+.schedule-content {
+  font-size: 0.875rem;
+}
+
+.schedule-content.morning {
+  color: #1e40af;
+}
+
+.schedule-content.afternoon {
+  color: #92400e;
+}
+
+.schedule-content.evening {
+  color: #7c3aed;
+}
+
+.schedule-content.accommodation {
+  color: #4b5563;
+}
+
+/* 축제/행사 정보 */
+.events-card {
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 1.5rem;
+  border: 1px solid #f3f4f6;
+  margin-bottom: 2rem;
+}
+
+.events-title {
+  color: #111827;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.event-item {
+  border: 1px solid #e9d5ff;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  background: linear-gradient(135deg, #faf5ff 0%, #fdf2f8 100%);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.event-item:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.event-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.event-title {
+  color: #111827;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.event-type {
+  background-color: #f3e8ff;
+  color: #7c3aed;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.event-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.meta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+}
+
+.meta-badge.blue {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.meta-badge.green {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.meta-badge.orange {
+  background-color: #fed7aa;
+  color: #c2410c;
+}
+
+.meta-badge svg {
+  height: 0.75rem;
+  width: 0.75rem;
+  margin-right: 0.25rem;
+}
+
+.event-description {
+  color: #4b5563;
+  margin-bottom: 1rem;
+}
+
+.event-website {
+  border-top: 1px solid #e9d5ff;
+  padding-top: 1rem;
+}
+
+.website-button {
+  display: inline-flex;
+  align-items: center;
+  background-color: #7c3aed;
+  color: #ffffff;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.website-button:hover {
+  background-color: #6d28d9;
+}
+
+.website-button svg {
+  height: 1rem;
+  width: 1rem;
+  margin-right: 0.5rem;
+}
+
+/* 숙박 정보 */
+.accommodation-card {
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 1.5rem;
+  border: 1px solid #f3f4f6;
+  margin-bottom: 2rem;
+}
+
+.accommodation-title {
+  color: #111827;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.accommodation-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.accommodation-item:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.accommodation-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.accommodation-name {
+  color: #111827;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.accommodation-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.accommodation-type {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.price-badge {
+  background-color: #dcfce7;
+  color: #166534;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.rating {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rating svg {
+  height: 1rem;
+  width: 1rem;
+  color: #fbbf24;
+  fill: currentColor;
+}
+
+.rating-text {
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.accommodation-location {
+  margin-bottom: 0.75rem;
+}
+
+.location-badge {
+  display: inline-flex;
+  align-items: center;
+  background-color: #dbeafe;
+  color: #1e40af;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+}
+
+.location-badge svg {
+  height: 0.75rem;
+  width: 0.75rem;
+  margin-right: 0.25rem;
+}
+
+.accommodation-description {
+  color: #4b5563;
+  margin-bottom: 1rem;
+}
+
+.amenities-section {
+  margin-bottom: 1rem;
+}
+
+.amenities-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.amenities-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.amenity-badge {
+  display: inline-flex;
+  align-items: center;
+  background-color: #dbeafe;
+  color: #1e40af;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+}
+
+.amenity-badge svg {
+  height: 0.75rem;
+  width: 0.75rem;
+  margin-right: 0.25rem;
+}
+
+.booking-section {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1rem;
+}
+
+.booking-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.75rem;
+}
+
+.booking-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.booking-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem;
+  background-color: #f9fafb;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease-in-out;
+  border: 1px solid #e5e7eb;
+  text-decoration: none;
+  color: inherit;
+}
+
+.booking-link:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.booking-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.booking-name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #374151;
+  text-align: center;
+  margin-bottom: 0.25rem;
+}
+
+.booking-link svg {
+  height: 0.75rem;
+  width: 0.75rem;
+  color: #6b7280;
+  margin-top: 0.25rem;
+}
+
+/* 여행 팁 */
+.tips-card {
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 1.5rem;
+  border: 1px solid #f3f4f6;
+}
+
+.tips-title {
+  color: #111827;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.tips-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.tip-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: #fef3c7;
+  border-radius: 0.5rem;
+}
+
+.tip-icon {
+  color: #f59e0b;
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+.tip-text {
+  color: #451a03;
+}
+
+/* 반응형 디자인 */
+@media (min-width: 768px) {
+  .overview-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .day-schedule {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .tips-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .booking-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .result-container {
+    padding: 0 2rem;
+  }
+}
+
+/* 애니메이션 */
+.event-item,
+.accommodation-item {
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.booking-link {
+  transition: all 0.2s ease-in-out;
+}
+
+/* 빈 상태 */
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: #6b7280;
+}
+
+.empty-state p {
+  margin-bottom: 0.5rem;
+}
+
+.empty-state .empty-subtitle {
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}

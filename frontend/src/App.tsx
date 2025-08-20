@@ -17,9 +17,9 @@ function App(): JSX.Element {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="app-container">
       <Header />
-      <main className="container mx-auto px-4 py-8">
+      <main className="app-main">
         {!tripPlan ? (
           <TripPlanner 
             onTripGenerated={handleTripGenerated}
