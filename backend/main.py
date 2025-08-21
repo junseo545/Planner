@@ -18,6 +18,55 @@ from datetime import datetime, timedelta  # 날짜와 시간 처리용
 import urllib.parse  # URL 인코딩용
 
 
+import requests
+import json
+
+load_dotenv()
+
+# 네이버 API 인증키
+client_id = "W9FDHYIV6V8_B7jxUJoj"
+client_secret = "bZ9RDTBZ0h"
+
+
+query = "부산 축제"
+
+headers = {
+    "X-Naver-Client-Id": client_id,
+    "X-Naver-Client-Secret": client_secret
+}
+
+# 1. 뉴스 검색
+news_url = f"https://openapi.naver.com/v1/search/news.json?query={query}&display=3&sort=date"
+news_res = requests.get(news_url, headers=headers).json()
+
+print("=== 뉴스 검색 결과 ===")
+for item in news_res['items']:
+    print(item['title'])
+    print(item['link'])
+    print(item['pubDate'])
+    print("-" * 40)
+
+# 2. 블로그 검색
+blog_url = f"https://openapi.naver.com/v1/search/blog.json?query={query}&display=3&sort=date"
+blog_res = requests.get(blog_url, headers=headers).json()
+
+print("\n=== 블로그 검색 결과 ===")
+for item in blog_res['items']:
+    print(item['title'])
+    print(item['link'])
+    print("-" * 40)
+
+# 3. 웹문서 검색
+web_url = f"https://openapi.naver.com/v1/search/webkr.json?query={query}&display=3&sort=date"
+web_res = requests.get(web_url, headers=headers).json()
+
+print("\n=== 웹문서 검색 결과 ===")
+for item in web_res['items']:
+    print(item['title'])
+    print(item['link'])
+    print("-" * 40)
+
+
 # ========================================
 # 로깅 설정 (로그: 프로그램 실행 과정을 기록하는 것)
 # ========================================
@@ -28,7 +77,6 @@ logger = logging.getLogger(__name__)  # 현재 파일의 로거를 생성
 # 환경 변수 설정
 # ========================================
 # .env 파일에서 환경변수를 읽어옵니다
-load_dotenv()
 
 # OpenAI API 키를 환경변수에서 가져옵니다
 # API 키는 AI 서비스를 사용하기 위한 비밀번호 같은 것입니다
@@ -36,6 +84,99 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     logger.error("OPENAI_API_KEY가 설정되지 않았습니다!")
     raise ValueError("OPENAI_API_KEY 환경 변수를 설정해주세요.")
+
+# # 검색 쿼리 설정
+# query = "부산 축제 2025년 8월 -자동차 -모터쇼 -현대 -BMW -지프 -혼다"
+# headers = {
+#     "X-Naver-Client-Id": client_id,
+#     "X-Naver-Client-Secret": client_secret
+# }
+
+# # 관련성 점수 계산 함수
+# def calculate_relevance(item):
+#     score = 0
+#     title = item.get('title', '').lower()
+#     description = item.get('description', '').lower()
+    
+#     # 관련 키워드 점수화
+#     keywords = ['축제', '부산', '2025', '8월', '해수욕장', '불꽃', '바다']
+#     for keyword in keywords:
+#         if keyword in title:
+#             score += 2
+#         if keyword in description:
+#             score += 1
+    
+#     # 관련 없는 키워드 감점
+#     irrelevant_keywords = ['자동차', '모터쇼', '현대', 'bmw', '지프', '혼다']
+#     for keyword in irrelevant_keywords:
+#         if keyword in title or keyword in description:
+#             score -= 3
+    
+#     return score
+
+# # 검색 결과 수집 및 정렬
+# def search_naver(query, search_type, display=3, sort="sim"):
+#     url = f"https://openapi.naver.com/v1/search/{search_type}.json?query={query}&display={display}&sort={sort}"
+#     try:
+#         res = requests.get(url, headers=headers).json()
+#         if 'items' not in res:
+#             logger.warning(f"{search_type} 검색 결과가 비어 있습니다.")
+#             return []
+#         return res['items']
+#     except Exception as e:
+#         logger.error(f"{search_type} 검색 중 오류 발생: {str(e)}")
+#         return []
+
+# # 모든 검색 결과 통합 및 순위 매기기
+# def get_top_relevant_results():
+#     # 뉴스, 블로그, 웹문서 검색
+#     news_results = search_naver(query, "news")
+#     blog_results = search_naver(query, "blog")
+#     web_results = search_naver(query, "webkr")
+    
+#     # 모든 결과를 하나로 합치기
+#     all_results = []
+#     for item in news_results:
+#         all_results.append({
+#             'type': 'news',
+#             'title': item['title'],
+#             'link': item['link'],
+#             'pubDate': item.get('pubDate', ''),
+#             'description': item.get('description', '')
+#         })
+#     for item in blog_results:
+#         all_results.append({
+#             'type': 'blog',
+#             'title': item['title'],
+#             'link': item['link'],
+#             'pubDate': item.get('postdate', ''),
+#             'description': item.get('description', '')
+#         })
+#     for item in web_results:
+#         all_results.append({
+#             'type': 'web',
+#             'title': item['title'],
+#             'link': item['link'],
+#             'pubDate': '',
+#             'description': item.get('description', '')
+#         })
+    
+#     # 관련성 점수로 정렬
+#     ranked_results = sorted(all_results, key=calculate_relevance, reverse=True)
+#     return ranked_results[:3]  # 상위 3개만 반환
+
+# # 메인 실행
+# if __name__ == "__main__":
+#     logger.info("부산 축제 2025년 8월 검색 시작")
+#     top_results = get_top_relevant_results()
+    
+#     print("\n=== 부산 축제 2025년 8월 관련 상위 3개 결과 ===")
+#     for i, result in enumerate(top_results, 1):
+#         print(f"{i}. [{result['type'].upper()}] {result['title']}")
+#         print(f"링크: {result['link']}")
+#         print(f"게시일: {result['pubDate']}")
+#         print(f"설명: {result['description']}")
+#         print("-" * 40)
 
 # OpenAI 클라이언트를 초기화합니다 (최신 버전 호환)
 client = openai.OpenAI(api_key=openai_api_key)
