@@ -3,6 +3,12 @@ import { ArrowLeft, ExternalLink, Download, Share2, Sparkles, MapPin, Calendar, 
 import { TripPlan, TripResultProps } from '../types';
 
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Element => {
+  // duration에서 "(3일)" 같은 텍스트를 제거하는 함수
+  const formatDuration = (duration: string): string => {
+    // "(3일)" 같은 패턴을 제거
+    return duration.replace(/\s*\(\d+일\)/, '');
+  };
+
   // 일정표를 렌더링하는 함수
   const renderSchedule = (day: any) => {
     return (
@@ -39,7 +45,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
       여행 계획서
 
       목적지: ${tripPlan.destination}
-      기간: ${tripPlan.duration}
+      기간: ${formatDuration(tripPlan.duration)}
       총 비용: ${tripPlan.total_cost}
 
       일정:
@@ -128,7 +134,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
           <div className="overview-item green">
             <Calendar className="overview-icon green" />
             <h3 className="overview-label">여행 기간</h3>
-            <p className="overview-value">{tripPlan.duration}</p>
+            <p className="overview-value">{formatDuration(tripPlan.duration)}</p>
           </div>
           <div className="overview-item purple">
             <DollarSign className="overview-icon purple" />

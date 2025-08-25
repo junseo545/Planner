@@ -46,6 +46,13 @@ lerna-debug.log*
 frontend/build/
 frontend/dist/
 
+# Vite 관련
+frontend/.vite/
+frontend/vite.config.ts.timestamp-*
+
+# TypeScript
+*.tsbuildinfo
+
 # IDE
 .vscode/
 .idea/
@@ -80,3 +87,14 @@ secrets.json
 *.db
 *.sqlite
 *.sqlite3
+
+# 배포 관련
+render.yaml
+DEPLOYMENT.md
+DEPLOYMENT_CHECKLIST.md
+
+# 배치 파일 (Windows 전용)
+*.bat
+
+# 환경 설정 예시 파일
+env_example.txt

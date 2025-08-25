@@ -2,13 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 공통 스타일 import */
-@import './styles/common.css';
-@import './styles/App.css';
-@import './styles/Header.css';
-@import './styles/TripPlanner.css';
-@import './styles/TripResult.css';
-
 @layer base {
   body {
     font-family: 'Inter', system-ui, sans-serif;
