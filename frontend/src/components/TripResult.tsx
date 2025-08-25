@@ -44,10 +44,10 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
 
       일정:
       ${tripPlan.itinerary.map(day => `
-             ${day.day}일차 (${day.date})
-       오전: ${day.morning}
-       오후: ${day.afternoon}
-       저녁: ${day.evening}
+      ${day.day}일차 (${day.date})
+      오전: ${day.morning}
+      오후: ${day.afternoon}
+      저녁: ${day.evening}
       `).join('')}
 
       
@@ -208,8 +208,8 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
                   <a
                     key={siteKey}
                     href={siteInfo.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                      target="_blank"
+                      rel="noopener noreferrer"
                     className="search-link-card"
                     title={`${siteInfo.name}에서 ${tripPlan.trip_hotel_search?.destination} 호텔 검색하기`}
                   >
@@ -217,13 +217,13 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
                     <div className="search-link-content">
                       <h4 className="search-link-name">{siteInfo.name}</h4>
                       <p className="search-link-description">{siteInfo.description}</p>
-                    </div>
+                  </div>
                     <ExternalLink className="search-link-arrow" />
-                  </a>
-                ))}
+                    </a>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
         </div>
       )}
 

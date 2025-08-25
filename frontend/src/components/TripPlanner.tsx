@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Search, Calendar, MapPin, DollarSign, Heart, Users, Bed, ArrowRight, ArrowLeft } from 'lucide-react';
 import axios from 'axios';
 import { TripPlan, TripPlannerProps, FormData } from '../types';
@@ -18,19 +18,70 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     end_date: ''
   });
 
+  // 자동완성을 위한 상태
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // 한국의 주요 도시/지역명 목록
+  const regionSuggestions = [
+    '강릉', '강원도', '거제', '거창', '경산', '경주', '고성', '공주', '과천', '광명', '광주', '구미', '군산', '김제', '김천', '김포', '나주', '남양주', '남원', '논산', '단양', '담양', '대구', '대전', '동두천', '동해', '마산', '목포', '문경', '밀양', '보령', '보성', '보은', '봉화', '부산', '부안', '부여', '부천', '사천', '삼척', '상주', '서산', '서울', '서천', '성남', '세종', '속초', '수원', '순천', '시흥', '아산', '안동', '안산', '안성', '안양', '양구', '양산', '양양', '양주', '양평', '여수', '여주', '연천', '영광', '영덕', '영동', '영암', '영양', '영월', '영주', '영천', '예산', '예천', '오산', '옥천', '완도', '완주', '용인', '울산', '울진', '원주', '음성', '의령', '의성', '의정부', '이천', '익산', '인천', '인제', '임실', '장성', '장수', '전주', '정선', '정읍', '제주', '제천', '조성', '주천', '증평', '진도', '진안', '진주', '진천', '창녕', '창원', '창원시', '천안', '철원', '청도', '청양', '청주', '춘천', '충주', '태백', '태안', '통영', '파주', '평창', '평택', '포천', '포항', '하남', '하동', '한산', '함양', '함평', '해남', '해주', '홍성', '홍천', '화성', '화순', '횡성'
+  ];
+
   const companionTypeOptions = ['연인', '친구', '가족', '혼자', '동료', '기타'];
 
   const travelStyleOptions = [
     '자연 관광', '문화 체험', '맛집 탐방', '쇼핑', '액티비티', '휴양', '역사 탐방'
   ];
 
+  // 자동완성 필터링 함수
+  const filterSuggestions = (input: string) => {
+    if (input.trim() === '') {
+      return [];
+    }
+    return regionSuggestions.filter(region => 
+      region.toLowerCase().includes(input.toLowerCase())
+    ).slice(0, 10); // 최대 10개만 표시
+  };
+
+  // 입력값 변경 처리
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
     const { name, value } = e.target;
+    
+    if (name === 'customRegion') {
+      setInputValue(value);
+      const filtered = filterSuggestions(value);
+      setFilteredSuggestions(filtered);
+      setShowSuggestions(filtered.length > 0);
+    } else {
     setFormData(prev => ({
       ...prev,
       [name]: name === 'guests' || name === 'rooms' ? parseInt(value) : value
     }));
+    }
   };
+
+  // 자동완성 선택 처리
+  const handleSuggestionClick = (suggestion: string) => {
+    setFormData(prev => ({ ...prev, customRegion: suggestion }));
+    setInputValue(suggestion);
+    setShowSuggestions(false);
+  };
+
+  // 외부 클릭 시 자동완성 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleCustomRegionInput = (): void => {
     if (formData.customRegion.trim()) {
@@ -100,7 +151,12 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
         end_date: formData.end_date
       };
 
-      const response = await axios.post<TripPlan>('http://localhost:8000/plan-trip', submitData);
+      // 환경에 따른 API URL 설정
+      const apiUrl = process.env.NODE_ENV === 'production' 
+        ? 'https://trip-planner-backend.onrender.com/plan-trip'
+        : 'http://localhost:8000/plan-trip';
+      
+      const response = await axios.post<TripPlan>(apiUrl, submitData);
       onTripGenerated(response.data);
     } catch (error) {
       console.error('여행 계획 생성 오류:', error);
@@ -130,11 +186,25 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           <input
             type="text"
             name="customRegion"
-            value={formData.customRegion}
+            value={inputValue}
             onChange={handleInputChange}
-            placeholder="예: 강릉, 청주, 제주도, 속초 등"
+            onFocus={() => setShowSuggestions(true)}
+            placeholder="예: 강원도 속초, 서울, 부산 등"
             className="region-input"
           />
+          {showSuggestions && (
+            <div ref={suggestionsRef} className="region-suggestions">
+              {filteredSuggestions.map((suggestion, index) => (
+                <div
+                  key={index}
+                  className="suggestion-item"
+                  onClick={() => handleSuggestionClick(suggestion)}
+                >
+                  {suggestion}
+                </div>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             onClick={handleCustomRegionInput}
@@ -358,20 +428,20 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             </div>
           )}
           {currentStep >= 2 && formData.guests > 0 && (
-            <div className="summary-item">
-              <strong>인원수:</strong> {formData.guests}명
-            </div>
+             <div className="summary-item">
+               <strong>인원수:</strong> {formData.guests}명
+             </div>
           )}
           {currentStep >= 3 && formData.companionType && (
             <div className="summary-item">
               <strong>동반자:</strong> {formData.companionType}
             </div>
-          )}
-          {currentStep >= 4 && formData.interests.length > 0 && (
-            <div className="summary-item">
-              <strong>여행 스타일:</strong> {formData.interests.join(', ')}
-            </div>
-          )}
+           )}
+                     {currentStep >= 4 && formData.interests.length > 0 && (
+             <div className="summary-item">
+               <strong>여행 스타일:</strong> {formData.interests.join(', ')}
+             </div>
+           )}
         </div>
       )}
 

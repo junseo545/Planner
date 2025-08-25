@@ -22,12 +22,11 @@ import re  # 정규표현식을 위한 라이브러리
 load_dotenv()
 
 # 네이버 API 인증키
-client_id = "W9FDHYIV6V8_B7jxUJoj"
-client_secret = "bZ9RDTBZ0h"
+
 
 # 네이버 API 인증
-CLIENT_ID = "ebhz7ru3kl"
-CLIENT_SECRET = "rcpmbXqa9QTGJ7Zp8TY9S1JfiAVJPIIUE2WsGy5g"
+CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
+CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 # 1. 장소 검색 (예: 부산 자갈치시장)
 def search_place(query):
@@ -758,7 +757,11 @@ app = FastAPI(title="여행 플래너 AI", version="1.0.0")
 # 프론트엔드(localhost:3000)에서 백엔드(localhost:8000)에 접근할 수 있게 합니다
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # 프론트엔드 주소
+    allow_origins=[
+        "http://localhost:3000",  # 로컬 개발용
+        "https://trip-planner-frontend.onrender.com",  # Render 프론트엔드
+        "https://trip-planner-frontend.vercel.app",   # Vercel 프론트엔드 (대안)
+    ],
     allow_credentials=True,  # 쿠키 등 인증 정보 허용
     allow_methods=["*"],  # 모든 HTTP 메서드 허용 (GET, POST 등)
     allow_headers=["*"],  # 모든 헤더 허용
@@ -1528,8 +1531,8 @@ async def plan_trip(request: TripRequest):
                 
                 # 전체 여행에 대한 호텔 검색 링크를 생성합니다
                 trip_hotel_search = hotel_service.create_trip_hotel_search_links(
-                    request.destination,
-                    request.start_date,
+                    request.destination, 
+                    request.start_date, 
                     request.end_date,
                     request.guests,
                     request.rooms
@@ -1594,8 +1597,8 @@ async def plan_trip(request: TripRequest):
             
             # 전체 여행에 대한 호텔 검색 링크를 생성합니다
             trip_hotel_search = hotel_service.create_trip_hotel_search_links(
-                request.destination,
-                request.start_date,
+                request.destination, 
+                request.start_date, 
                 request.end_date,
                 request.guests,
                 request.rooms

@@ -279,6 +279,7 @@
   text-align: center;
   max-width: 500px;
   margin: 0 auto;
+  position: relative;
 }
 
 .region-input-label {
@@ -293,6 +294,7 @@
   gap: 0.75rem;
   max-width: 450px;
   margin: 0 auto 1rem auto;
+  position: relative;
 }
 
 .region-input {
@@ -315,6 +317,66 @@
 
 .region-input::placeholder {
   color: #94a3b8;
+}
+
+/* 자동완성 드롭다운 스타일 */
+.region-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.suggestion-item {
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-item:hover {
+  background: #f8fafc;
+  color: #3b82f6;
+}
+
+.suggestion-item:first-child {
+  border-radius: 0 0 0 10px;
+}
+
+.suggestion-item:last-child {
+  border-radius: 0 0 10px 0;
+}
+
+/* 스크롤바 스타일링 */
+.region-suggestions::-webkit-scrollbar {
+  width: 6px;
+}
+
+.region-suggestions::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.region-suggestions::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.region-suggestions::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .region-input-button {
@@ -601,6 +663,16 @@
   .next-button,
   .submit-button {
     padding: 1rem 2rem;
+    font-size: 1rem;
+  }
+
+  /* 모바일에서 자동완성 스타일 조정 */
+  .region-suggestions {
+    max-height: 150px;
+  }
+  
+  .suggestion-item {
+    padding: 1rem 1.25rem;
     font-size: 1rem;
   }
 }
