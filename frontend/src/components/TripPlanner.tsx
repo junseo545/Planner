@@ -152,8 +152,8 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       };
 
       // 환경에 따른 API URL 설정
-      const apiUrl = process.env.NODE_ENV === 'production' 
-        ? 'https://trip-planner-backend.onrender.com/plan-trip'
+      const apiUrl = import.meta.env.PROD 
+        ? 'https://planner-backend-3bcz.onrender.com/plan-trip'
         : 'http://localhost:8000/plan-trip';
       
       const response = await axios.post<TripPlan>(apiUrl, submitData);
