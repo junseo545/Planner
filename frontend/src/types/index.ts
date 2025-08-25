@@ -70,7 +70,7 @@ export interface TripPlan {
   };
 }
 
-export interface FormData {
+export interface TripFormData {
   // 단계별 선택을 위한 필드들
   region: string; // 지역 선택
   customRegion: string; // 직접 입력한 지역

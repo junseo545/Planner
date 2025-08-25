@@ -1,8 +1,8 @@
 import React from 'react';
-import { ArrowLeft, ExternalLink, Download, Share2, Sparkles, MapPin, Calendar, DollarSign } from 'lucide-react';
-import { TripPlan, TripResultProps } from '../types';
+import { ArrowLeft, ExternalLink, Download, Share2, MapPin, Calendar, DollarSign } from 'lucide-react';
+import { TripResultProps } from '../types';
 
-const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Element => {
+const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX.Element => {
   // duration에서 "(3일)" 같은 텍스트를 제거하는 함수
   const formatDuration = (duration: string): string => {
     // "(3일)" 같은 패턴을 제거
@@ -239,8 +239,8 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
       <div className="tips-card">
         <h2 className="tips-title">💡 여행 팁</h2>
         <div className="tips-grid">
-          {tripPlan.tips.map((tip, index) => (
-            <div key={index} className="tip-item">
+          {tripPlan.tips.map((tip) => (
+            <div key={tip} className="tip-item">
               <span className="tip-icon">💡</span>
               <p className="tip-text">{tip}</p>
             </div>

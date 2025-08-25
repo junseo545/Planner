@@ -4,7 +4,7 @@ import TripResult from './components/TripResult';
 import Header from './components/Header';
 import { TripPlan } from './types';
 
-function App(): JSX.Element {
+const App: React.FC = (): React.JSX.Element => {
   const [tripPlan, setTripPlan] = useState<TripPlan | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -35,6 +35,6 @@ function App(): JSX.Element {
       </main>
     </div>
   );
-}
+};
 
 export default App;

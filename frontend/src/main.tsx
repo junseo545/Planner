@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.tsx'
+import App from './App'
 
 // CSS 파일들을 직접 import
 import './index.css'

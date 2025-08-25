@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Calendar, MapPin, DollarSign, Heart, Users, Bed, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Search, Calendar, DollarSign, Bed, ArrowRight, ArrowLeft } from 'lucide-react';
 import axios from 'axios';
-import { TripPlan, TripPlannerProps, FormData } from '../types';
+import { TripPlan, TripPlannerProps, TripFormData } from '../types';
 
-const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, setLoading }): JSX.Element => {
+const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, setLoading }): React.JSX.Element => {
   const [currentStep, setCurrentStep] = useState(1);
-  const [formData, setFormData] = useState<FormData>({
+  const [formData, setFormData] = useState<TripFormData>({
     region: '',
     customRegion: '',
     guests: 2,
@@ -55,7 +55,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       setFilteredSuggestions(filtered);
       setShowSuggestions(filtered.length > 0);
     } else {
-    setFormData(prev => ({
+    setFormData((prev: TripFormData) => ({
       ...prev,
       [name]: name === 'guests' || name === 'rooms' ? parseInt(value) : value
     }));
@@ -64,7 +64,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   // 자동완성 선택 처리
   const handleSuggestionClick = (suggestion: string) => {
-    setFormData(prev => ({ ...prev, customRegion: suggestion }));
+    setFormData((prev: TripFormData) => ({ ...prev, customRegion: suggestion }));
     setInputValue(suggestion);
     setShowSuggestions(false);
   };
@@ -85,7 +85,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   const handleCustomRegionInput = (): void => {
     if (formData.customRegion.trim()) {
-      setFormData(prev => ({
+      setFormData((prev: TripFormData) => ({
         ...prev,
         region: formData.customRegion
       }));
@@ -108,7 +108,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
   const handleTravelStyleSelect = (): void => {
     // 여행 스타일이 선택되었는지 확인
     if (formData.interests.length > 0) {
-      setFormData(prev => ({
+      setFormData((prev: TripFormData) => ({
         ...prev,
         travelStyle: formData.interests.join(', ')
       }));
@@ -119,10 +119,10 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
   };
 
   const handleInterestToggle = (interest: string): void => {
-    setFormData(prev => ({
+    setFormData((prev: TripFormData) => ({
       ...prev,
       interests: prev.interests.includes(interest)
-        ? prev.interests.filter(i => i !== interest)
+        ? prev.interests.filter((i: string) => i !== interest)
         : [...prev.interests, interest]
     }));
   };
@@ -255,7 +255,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             key={option}
             type="button"
             onClick={() => {
-              setFormData(prev => ({ ...prev, companionType: option }));
+              setFormData((prev: TripFormData) => ({ ...prev, companionType: option }));
             }}
             className={`companion-option ${formData.companionType === option ? 'selected' : ''}`}
           >
