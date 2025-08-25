@@ -16,10 +16,8 @@ import json  # JSON 데이터 처리용
 import logging  # 로그 기록용
 from datetime import datetime, timedelta  # 날짜와 시간 처리용
 import urllib.parse  # URL 인코딩용
-
-
-import requests
-import json
+import requests  # HTTP 요청을 위한 라이브러리
+import re  # 정규표현식을 위한 라이브러리
 
 load_dotenv()
 
@@ -27,45 +25,611 @@ load_dotenv()
 client_id = "W9FDHYIV6V8_B7jxUJoj"
 client_secret = "bZ9RDTBZ0h"
 
+# 네이버 API 인증
+CLIENT_ID = "ebhz7ru3kl"
+CLIENT_SECRET = "rcpmbXqa9QTGJ7Zp8TY9S1JfiAVJPIIUE2WsGy5g"
 
-query = "부산 축제"
+# 1. 장소 검색 (예: 부산 자갈치시장)
+def search_place(query):
+    url = "https://openapi.naver.com/v1/search/local.json"
+    headers = {
+        "X-Naver-Client-Id": CLIENT_ID,
+        "X-Naver-Client-Secret": CLIENT_SECRET
+    }
+    params = {"query": query, "display": 1}
+    res = requests.get(url, headers=headers, params=params)
+    return res.json()
 
-headers = {
-    "X-Naver-Client-Id": client_id,
-    "X-Naver-Client-Secret": client_secret
-}
+# 2. 길찾기 (예: 부산역 -> 자갈치시장)
+def get_directions(start, goal):
+    url = f"https://naveropenapi.apigw.ntruss.com/map-direction/v1/driving"
+    headers = {
+        "X-NCP-APIGW-API-KEY-ID": CLIENT_ID,
+        "X-NCP-APIGW-API-KEY": CLIENT_SECRET
+    }
+    params = {
+        "start": start,   # "127.1054328,37.3595963"
+        "goal": goal,     # "129.075986,35.179470"
+        "option": "trafast"  # 최적경로
+    }
+    res = requests.get(url, headers=headers, params=params)
+    return res.json()
 
-# 1. 뉴스 검색
-news_url = f"https://openapi.naver.com/v1/search/news.json?query={query}&display=3&sort=date"
-news_res = requests.get(news_url, headers=headers).json()
 
-print("=== 뉴스 검색 결과 ===")
-for item in news_res['items']:
-    print(item['title'])
-    print(item['link'])
-    print(item['pubDate'])
-    print("-" * 40)
+# ========================================
+# 네이버 API 검색 서비스 클래스
+# ========================================
+class NaverSearchService:
+    """네이버 API를 활용한 검색 서비스"""
+    
+    def __init__(self):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.headers = {
+            "X-Naver-Client-Id": self.client_id,
+            "X-Naver-Client-Secret": self.client_secret
+        }
+    
+    def search_events(self, destination: str, start_date: str, end_date: str) -> List[dict]:
+        """목적지와 날짜에 맞는 축제/행사 정보를 검색하는 메서드"""
+        try:
+            # 날짜 정보 파싱
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            current_date = datetime.now().date()
+            
+            # 여행 시작일이 현재 날짜보다 과거인지 확인
+            if start_dt.date() < current_date:
+                logger.info(f"과거 여행 제외: {start_date} (현재: {current_date})")
+                return []
+            
+            # 검색 쿼리 구성 - 연도를 명시적으로 포함하고 미래 이벤트 강조
+            year = start_dt.year
+            month = start_dt.month
+            
+            # 지역 중심의 검색 쿼리 (지역을 더 강조)
+            search_queries = [
+                f'"{destination}" {year}년 {month}월 축제',  # 따옴표로 지역명 강조
+                f'"{destination}" {year}년 {month}월 행사',
+                f'"{destination}" {year}년 {month}월 이벤트',
+                f'"{destination}" {year}년 {month}월 문화행사',
+                f'"{destination}" {year}년 {month}월 페스티벌',
+                f'"{destination}" {year}년 {month}월 축제 일정',
+                f'"{destination}" {year}년 {month}월 행사 일정',
+                # 구체적인 날짜 범위를 포함한 검색
+                f'"{destination}" {start_date} {end_date} 축제',
+                f'"{destination}" {start_date} {end_date} 행사',
+                f'"{destination}" {start_date} {end_date} 이벤트',
+                # 지역명을 앞에 배치하여 우선순위 높임
+                f'{destination}지역 {year}년 {month}월 축제',
+                f'{destination}지역 {year}년 {month}월 행사',
+                f'{destination}지역 {year}년 {month}월 이벤트'
+            ]
+            
+            all_results = []
+            
+            for query in search_queries:
+                try:
+                    # 뉴스 검색 - 최신순으로 정렬
+                    news_results = self._search_naver("news", query, 5)
+                    all_results.extend(self._process_news_results(news_results, destination, start_date, end_date))
+                    
+                    # 블로그 검색 - 관련성순으로 정렬
+                    blog_results = self._search_naver("blog", query, 5)
+                    all_results.extend(self._process_blog_results(blog_results, destination, start_date, end_date))
+                    
+                    # 웹문서 검색 - 관련성순으로 정렬
+                    web_results = self._search_naver("webkr", query, 5)
+                    all_results.extend(self._process_web_results(web_results, destination, start_date, end_date))
+                    
+                except Exception as e:
+                    logger.warning(f"쿼리 '{query}' 검색 중 오류: {e}")
+                    continue
+            
+            # 중복 제거 및 관련성 점수로 정렬
+            unique_results = self._remove_duplicates(all_results)
+            scored_results = self._calculate_relevance_scores(unique_results, destination, start_date, end_date)
+            
+            # 상위 결과만 반환 (최대 8개)
+            return scored_results[:5]
+            
+        except Exception as e:
+            logger.error(f"네이버 검색 중 오류: {e}")
+            return []
+    
+    def _search_naver(self, search_type: str, query: str, display: int = 10) -> dict:
+        """네이버 API 검색 실행"""
+        url = f"https://openapi.naver.com/v1/search/{search_type}.json"
+        
+        # 검색 타입별 최적 파라미터 설정
+        if search_type == "news":
+            # 뉴스는 최신순으로 정렬하고 연도 필터링 강화
+            params = {
+                "query": query,
+                "display": display,
+                "sort": "date",  # 최신순
+                "start": 1
+            }
+        elif search_type == "blog":
+            # 블로그는 관련성순으로 정렬
+            params = {
+                "query": query,
+                "display": display,
+                "sort": "sim",  # 관련성순
+                "start": 1
+            }
+        else:  # webkr
+            # 웹문서는 관련성순으로 정렬
+            params = {
+                "query": query,
+                "display": display,
+                "sort": "sim",  # 관련성순
+                "start": 1
+            }
+        
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.Timeout:
+            logger.warning(f"네이버 API 검색 타임아웃: {search_type}")
+            return {"items": []}
+        except Exception as e:
+            logger.error(f"네이버 API 검색 오류: {search_type}, {e}")
+            return {"items": []}
+    
+    def _process_news_results(self, results: dict, destination: str, start_date: str, end_date: str) -> List[dict]:
+        """뉴스 검색 결과를 처리하여 이벤트 정보로 변환"""
+        events = []
+        
+        if 'items' not in results:
+            return events
+        
+        # 여행 기간 파싱
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        target_year = start_dt.year
+        
+        for item in results['items']:
+            try:
+                # 제목과 설명에서 목적지가 명확하게 포함되어 있는지 확인
+                title = item.get('title', '').lower()
+                description = item.get('description', '').lower()
+                
+                # 목적지가 제목이나 설명에 포함되어 있는지 확인 (지역명, 약칭, 별칭 포함)
+                destination_variants = self._get_destination_variants(destination)
+                has_destination = any(variant in title or variant in description for variant in destination_variants)
+                
+                if not has_destination:
+                    logger.info(f"목적지 불일치 제외: {item.get('title', '')} - 목적지: {destination}")
+                    continue
+                
+                # 날짜 정보 추출
+                pub_date = self._extract_date(item.get('pubDate', ''))
+                if not pub_date:
+                    continue
+                
+                # 연도가 여행 연도와 일치하는지 확인
+                if pub_date.year != target_year:
+                    logger.info(f"연도 불일치 제외: {item.get('title', '')} - {pub_date.year}년 (목표: {target_year}년)")
+                    continue
+                
+                # 여행 기간과 비교 (월/일만)
+                if self._is_date_in_range(pub_date, start_date, end_date):
+                    event = {
+                        'name': self._clean_title(item.get('title', '')),
+                        'date': pub_date.strftime("%Y-%m-%d"),
+                        'description': self._clean_description(item.get('description', '')),
+                        'location': destination,
+                        'type': '뉴스',
+                        'website': item.get('link', ''),
+                        'ticket_info': None,
+                        'source': 'naver_news',
+                        'relevance_score': 0
+                    }
+                    events.append(event)
+                    logger.info(f"뉴스 이벤트 추가: {event['name']} ({event['date']}) - {destination}")
+                else:
+                    logger.info(f"날짜 범위 밖 제외: {item.get('title', '')} - {pub_date.strftime('%Y-%m-%d')}")
+                    
+            except Exception as e:
+                logger.warning(f"뉴스 결과 처리 중 오류: {e}")
+                continue
+        
+        return events
+    
+    def _process_blog_results(self, results: dict, destination: str, start_date: str, end_date: str) -> List[dict]:
+        """블로그 검색 결과를 처리하여 이벤트 정보로 변환"""
+        events = []
+        
+        if 'items' not in results:
+            return events
+        
+        # 여행 기간 파싱
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        target_year = start_dt.year
+        current_date = datetime.now().date()  # 현재 날짜
+        
+        for item in results['items']:
+            try:
+                # 블로그는 날짜 정보가 부정확할 수 있으므로 키워드 기반으로 필터링
+                title = item.get('title', '').lower()
+                description = item.get('description', '').lower()
+                
+                # 목적지가 제목이나 설명에 포함되어 있는지 확인 (지역명, 약칭, 별칭 포함)
+                destination_variants = self._get_destination_variants(destination)
+                has_destination = any(variant in title or variant in description for variant in destination_variants)
+                
+                if not has_destination:
+                    logger.info(f"블로그 목적지 불일치 제외: {item.get('title', '')} - 목적지: {destination}")
+                    continue
+                
+                # 연도가 제목이나 설명에 명시적으로 포함되어 있는지 확인
+                year_in_title = str(target_year) in title
+                year_in_description = str(target_year) in description
+                
+                # 축제/행사 관련 키워드 확인
+                event_keywords = ['축제', '행사', '이벤트', '페스티벌', '전시회', '공연', '쇼']
+                has_event_keywords = any(keyword in title or keyword in description for keyword in event_keywords)
+                
+                # 연도와 이벤트 키워드가 모두 있는 경우만 포함
+                if (year_in_title or year_in_description) and has_event_keywords:
+                    # 여행 시작일이 현재 날짜보다 과거인지 확인
+                    if start_dt.date() < current_date:
+                        logger.info(f"블로그 과거 여행 제외: {start_date} (현재: {current_date})")
+                        continue
+                    
+                    event = {
+                        'name': self._clean_title(item.get('title', '')),
+                        'date': start_date,  # 블로그는 정확한 날짜를 알기 어려우므로 여행 시작일로 설정
+                        'description': self._clean_description(item.get('description', '')),
+                        'location': destination,
+                        'type': '블로그 정보',
+                        'website': item.get('link', ''),
+                        'ticket_info': None,
+                        'source': 'naver_blog',
+                        'relevance_score': 0
+                    }
+                    events.append(event)
+                    logger.info(f"블로그 이벤트 추가: {event['name']} (연도 확인됨) - {destination}")
+                else:
+                    logger.info(f"블로그 제외: {item.get('title', '')} - 연도 또는 키워드 부족")
+                    
+            except Exception as e:
+                logger.warning(f"블로그 결과 처리 중 오류: {e}")
+                continue
+        
+        return events
+    
+    def _process_web_results(self, results: dict, destination: str, start_date: str, end_date: str) -> List[dict]:
+        """웹문서 검색 결과를 처리하여 이벤트 정보로 변환"""
+        events = []
+        
+        if 'items' not in results:
+            return events
+        
+        # 여행 기간 파싱
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        target_year = start_dt.year
+        current_date = datetime.now().date()  # 현재 날짜
+        
+        for item in results['items']:
+            try:
+                title = item.get('title', '').lower()
+                description = item.get('description', '').lower()
+                
+                # 목적지가 제목이나 설명에 포함되어 있는지 확인 (지역명, 약칭, 별칭 포함)
+                destination_variants = self._get_destination_variants(destination)
+                has_destination = any(variant in title or variant in description for variant in destination_variants)
+                
+                if not has_destination:
+                    logger.info(f"웹문서 목적지 불일치 제외: {item.get('title', '')} - 목적지: {destination}")
+                    continue
+                
+                # 연도가 제목이나 설명에 명시적으로 포함되어 있는지 확인
+                year_in_title = str(target_year) in title
+                year_in_description = str(target_year) in description
+                
+                # 축제/행사 관련 키워드 확인
+                event_keywords = ['축제', '행사', '이벤트', '페스티벌', '전시회', '공연', '쇼']
+                has_event_keywords = any(keyword in title or keyword in description for keyword in event_keywords)
+                
+                # 연도와 이벤트 키워드가 모두 있는 경우만 포함
+                if (year_in_title or year_in_description) and has_event_keywords:
+                    # 여행 시작일이 현재 날짜보다 과거인지 확인
+                    if start_dt.date() < current_date:
+                        logger.info(f"웹문서 과거 여행 제외: {start_date} (현재: {current_date})")
+                        continue
+                    
+                    event = {
+                        'name': self._clean_title(item.get('title', '')),
+                        'date': start_date,  # 웹문서도 정확한 날짜를 알기 어려움
+                        'description': self._clean_description(item.get('description', '')),
+                        'location': destination,
+                        'type': '웹문서',
+                        'website': item.get('link', ''),
+                        'ticket_info': None,
+                        'source': 'naver_web',
+                        'relevance_score': 0
+                    }
+                    events.append(event)
+                    logger.info(f"웹문서 이벤트 추가: {event['name']} (연도 확인됨) - {destination}")
+                else:
+                    logger.info(f"웹문서 제외: {item.get('title', '')} - 연도 또는 키워드 부족")
+                    
+            except Exception as e:
+                logger.warning(f"웹문서 결과 처리 중 오류: {e}")
+                continue
+        
+        return events
+    
+    def _extract_date(self, date_str: str) -> Optional[datetime]:
+        """문자열에서 날짜 정보를 추출"""
+        try:
+            # 다양한 날짜 형식 처리
+            date_patterns = [
+                r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',
+                r'(\d{4})-(\d{1,2})-(\d{1,2})',
+                r'(\d{1,2})월\s*(\d{1,2})일',
+                r'(\d{4})년\s*(\d{1,2})월'
+            ]
+            
+            for pattern in date_patterns:
+                match = re.search(pattern, date_str)
+                if match:
+                    if len(match.groups()) == 3:
+                        year, month, day = map(int, match.groups())
+                        return datetime(year, month, day)
+                    elif len(match.groups()) == 2:
+                        month, day = map(int, match.groups())
+                        # 현재 연도 사용
+                        current_year = datetime.now().year
+                        return datetime(current_year, month, day)
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"날짜 추출 실패: {date_str}, {e}")
+            return None
+    
+    def _is_date_in_range(self, event_date: datetime, start_date: str, end_date: str) -> bool:
+        """이벤트 날짜가 여행 기간 내에 있는지 확인"""
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            current_date = datetime.now().date()  # 현재 날짜
+            
+            # 이미 지난 이벤트는 제외
+            if event_date.date() < current_date:
+                logger.info(f"과거 이벤트 제외: {event_date.strftime('%Y-%m-%d')} (현재: {current_date})")
+                return False
+            
+            # 여행 기간 내에 있는지 정확하게 확인 (연도 포함)
+            if start_dt <= event_date <= end_dt:
+                logger.info(f"여행 기간 내 이벤트: {event_date.strftime('%Y-%m-%d')} (여행: {start_date} ~ {end_date})")
+                return True
+            
+            # 연도가 바뀌는 경우 (예: 12월 31일 ~ 1월 2일) - 월/일만 비교
+            if start_dt.month > end_dt.month:
+                # 여행이 연도를 걸치는 경우
+                event_month_day = (event_date.month, event_date.day)
+                start_month_day = (start_dt.month, start_dt.day)
+                end_month_day = (end_dt.month, end_dt.day)
+                
+                # 월/일 기준으로 매칭
+                if (event_month_day >= start_month_day) or (event_month_day <= end_month_day):
+                    logger.info(f"연도 걸친 여행 기간 내 이벤트: {event_date.strftime('%Y-%m-%d')} (여행: {start_date} ~ {end_date})")
+                    return True
+            
+            # 여행 기간 밖의 이벤트는 제외
+            logger.info(f"여행 기간 밖 이벤트 제외: {event_date.strftime('%Y-%m-%d')} (여행: {start_date} ~ {end_date})")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"날짜 범위 확인 실패: {e}")
+            return False
+    
+    def _clean_title(self, title: str) -> str:
+        """제목에서 HTML 태그와 불필요한 문자 제거"""
+        # HTML 태그 제거
+        title = re.sub(r'<[^>]+>', '', title)
+        # 특수 문자 정리
+        title = re.sub(r'[^\w\s가-힣]', '', title)
+        return title.strip()
+    
+    def _clean_description(self, description: str) -> str:
+        """설명에서 HTML 태그와 불필요한 문자 제거"""
+        # HTML 태그 제거
+        description = re.sub(r'<[^>]+>', '', description)
+        # 특수 문자 정리
+        description = re.sub(r'[^\w\s가-힣]', '', description)
+        return description.strip()
+    
+    def _remove_duplicates(self, events: List[dict]) -> List[dict]:
+        """중복 이벤트 제거"""
+        seen = set()
+        unique_events = []
+        
+        for event in events:
+            # 제목과 설명을 기반으로 중복 확인
+            key = (event['name'], event['description'][:50])
+            if key not in seen:
+                seen.add(key)
+                unique_events.append(event)
+        
+        return unique_events
+    
+    def _calculate_relevance_scores(self, events: List[dict], destination: str, start_date: str, end_date: str) -> List[dict]:
+        """이벤트의 관련성 점수를 계산하고 정렬"""
+        target_year = datetime.strptime(start_date, "%Y-%m-%d").year
+        current_date = datetime.now().date()
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        for event in events:
+            score = 0
+            
+            # 제목과 설명에서 관련 키워드 확인
+            title = event['name'].lower()
+            description = event['description'].lower()
+            
+            # 목적지 관련성 (가장 중요)
+            destination_variants = self._get_destination_variants(destination)
+            destination_score = 0
+            
+            # 제목에서 목적지 확인
+            for variant in destination_variants:
+                if variant in title:
+                    destination_score += 8  # 제목에 목적지가 있으면 매우 높은 점수
+                    break
+            
+            # 설명에서 목적지 확인
+            if destination_score == 0:  # 제목에 없었다면
+                for variant in destination_variants:
+                    if variant in description:
+                        destination_score += 5  # 설명에 목적지가 있으면 높은 점수
+                        break
+            
+            score += destination_score
+            
+            # 연도 일치
+            if str(target_year) in title:
+                score += 10  # 제목에 연도가 있으면 매우 높은 점수
+            elif str(target_year) in description:
+                score += 8   # 설명에 연도가 있으면 높은 점수
+            
+            # 여행 기간 내 정확한 날짜 매칭 (가장 중요)
+            try:
+                event_date = datetime.strptime(event['date'], "%Y-%m-%d")
+                if start_dt <= event_date <= end_dt:
+                    score += 15  # 여행 기간 내 정확한 날짜는 매우 높은 점수
+                    logger.info(f"여행 기간 내 정확한 날짜 매칭: {event['name']} ({event['date']}) - +15점")
+                elif start_dt.month > end_dt.month:  # 연도 걸친 여행
+                    event_month_day = (event_date.month, event_date.day)
+                    start_month_day = (start_dt.month, start_dt.day)
+                    end_month_day = (end_dt.month, end_dt.day)
+                    if (event_month_day >= start_month_day) or (event_month_day <= end_month_day):
+                        score += 12  # 연도 걸친 여행 기간 내 날짜는 높은 점수
+                        logger.info(f"연도 걸친 여행 기간 내 날짜 매칭: {event['name']} ({event['date']}) - +12점")
+            except:
+                pass  # 날짜 파싱 실패 시 점수 추가하지 않음
+            
+            # 미래 이벤트 키워드 (예정, 일정 등)
+            future_keywords = ['예정', '일정', '개최', '진행', '열린다', '개막', '시작']
+            for keyword in future_keywords:
+                if keyword in title:
+                    score += 4
+                if keyword in description:
+                    score += 3
+            
+            # 축제/행사 키워드
+            event_keywords = ['축제', '행사', '이벤트', '페스티벌', '전시회', '공연', '쇼']
+            for keyword in event_keywords:
+                if keyword in title:
+                    score += 3
+                if keyword in description:
+                    score += 2
+            
+            # 날짜 정확성
+            if event['source'] == 'naver_news':
+                score += 5  # 뉴스는 날짜가 더 정확함
+            elif event['source'] == 'naver_blog':
+                score += 3  # 블로그는 중간
+            elif event['source'] == 'naver_web':
+                score += 2  # 웹문서는 낮음
+            
+            # 정보 품질
+            if len(event['description']) > 50:
+                score += 2
+            
+            # 제목 길이 (너무 짧거나 긴 것은 제외)
+            if 10 <= len(event['name']) <= 100:
+                score += 1
+            
+            event['relevance_score'] = score
+        
+        # 점수순으로 정렬
+        return sorted(events, key=lambda x: x['relevance_score'], reverse=True)
 
-# 2. 블로그 검색
-blog_url = f"https://openapi.naver.com/v1/search/blog.json?query={query}&display=3&sort=date"
-blog_res = requests.get(blog_url, headers=headers).json()
-
-print("\n=== 블로그 검색 결과 ===")
-for item in blog_res['items']:
-    print(item['title'])
-    print(item['link'])
-    print("-" * 40)
-
-# 3. 웹문서 검색
-web_url = f"https://openapi.naver.com/v1/search/webkr.json?query={query}&display=3&sort=date"
-web_res = requests.get(web_url, headers=headers).json()
-
-print("\n=== 웹문서 검색 결과 ===")
-for item in web_res['items']:
-    print(item['title'])
-    print(item['link'])
-    print("-" * 40)
-
+    def _get_destination_variants(self, destination: str) -> List[str]:
+        """목적지의 다양한 변형(약칭, 별칭, 구/군 단위 등)을 반환"""
+        variants = [destination.lower()]  # 원본 지역명
+        
+        # 지역별 약칭 및 별칭 추가
+        destination_mapping = {
+            "부산": ["부산", "부산시", "부산광역시", "해운대", "서면", "남포동", "광안리", "동래", "부산진"],
+            "서울": ["서울", "서울시", "서울특별시", "강남", "홍대", "명동", "이태원", "잠실", "강북"],
+            "제주도": ["제주", "제주도", "제주시", "서귀포", "애월", "성산", "한라산", "제주특별자치도"],
+            "여수": ["여수", "여수시", "여수항", "돌산공원", "여수엑스포"],
+            "도쿄": ["도쿄", "tokyo", "신주쿠", "시부야", "하라주쿠", "우에노", "아사쿠사"],
+            "파리": ["파리", "paris", "몽마르트", "샹젤리제", "루브르", "에펠탑"],
+            "세종": ["세종", "세종시", "세종특별자치시", "세종특별자치도"],
+            "대구": ["대구", "대구시", "대구광역시", "동성로", "서문시장", "수성구"],
+            "인천": ["인천", "인천시", "인천광역시", "송도", "월미도", "인천공항"],
+            "광주": ["광주", "광주시", "광주광역시", "유스퀘어", "상무지구"],
+            "대전": ["대전", "대전시", "대전광역시", "유성구", "중앙로"],
+            "울산": ["울산", "울산시", "울산광역시", "울산항", "태화강"],
+            "수원": ["수원", "수원시", "경기도수원시", "화성", "수원화성"],
+            "고양": ["고양", "고양시", "경기도고양시", "일산", "덕양구"],
+            "용인": ["용인", "용인시", "경기도용인시", "에버랜드", "기흥구"],
+            "성남": ["성남", "성남시", "경기도성남시", "분당", "판교"],
+            "부천": ["부천", "부천시", "경기도부천시", "상동", "중동"],
+            "안산": ["안산", "안산시", "경기도안산시", "단원구", "상록구"],
+            "안양": ["안양", "안양시", "경기도안양시", "만안구", "동안구"],
+            "평택": ["평택", "평택시", "경기도평택시", "평택항", "송탄"],
+            "시흥": ["시흥", "시흥시", "경기도시흥시", "정왕동", "연성동"],
+            "김포": ["김포", "김포시", "경기도김포시", "김포공항", "운양동"],
+            "화성": ["화성", "화성시", "경기도화성시", "오산", "병점"],
+            "광명": ["광명", "광명시", "경기도광명시", "철산동", "광명동"],
+            "군포": ["군포", "군포시", "경기도군포시", "산본동", "금정동"],
+            "오산": ["오산", "오산시", "경기도오산시", "오산동", "청호동"],
+            "이천": ["이천", "이천시", "경기도이천시", "장호원", "마장"],
+            "안성": ["안성", "안성시", "경기도안성시", "공도", "보개"],
+            "포천": ["포천", "포천시", "경기도포천시", "운악산", "소흘"],
+            "양평": ["양평", "양평군", "경기도양평군", "양수리", "청운"],
+            "여주": ["여주", "여주시", "경기도여주시", "가남", "능서"],
+            "양주": ["양주", "양주시", "경기도양주시", "회천", "백석"],
+            "동두천": ["동두천", "동두천시", "경기도동두천시", "생연동", "보산동"],
+            "가평": ["가평", "가평군", "경기도가평군", "청평", "설악"],
+            "연천": ["연천", "연천군", "경기도연천군", "전곡", "청산"],
+            "과천": ["과천", "과천시", "경기도과천시", "과천동", "문원동"],
+            "의왕": ["의왕", "의왕시", "경기도의왕시", "왕곡동", "오전동"],
+            "하남": ["하남", "하남시", "경기도하남시", "하남동", "광주동"],
+            "구리": ["구리", "구리시", "경기도구리시", "인창동", "교문동"],
+            "남양주": ["남양주", "남양주시", "경기도남양주시", "와부", "진건"],
+            "파주": ["파주", "파주시", "경기도파주시", "운정", "문산"],
+            "고양": ["고양", "고양시", "경기도고양시", "일산", "덕양구"],
+            "의정부": ["의정부", "의정부시", "경기도의정부시", "의정부동", "호원동"],
+            "양주": ["양주", "양주시", "경기도양주시", "회천", "백석"],
+            "동두천": ["동두천", "동두천시", "경기도동두천시", "생연동", "보산동"],
+            "가평": ["가평", "가평군", "경기도가평군", "청평", "설악"],
+            "연천": ["연천", "연천군", "경기도연천군", "전곡", "청산"],
+            "과천": ["과천", "과천시", "경기도과천시", "과천동", "문원동"],
+            "의왕": ["의왕", "의왕시", "경기도의왕시", "왕곡동", "오전동"],
+            "하남": ["하남", "하남시", "경기도하남시", "하남동", "광주동"],
+            "구리": ["구리", "구리시", "경기도구리시", "인창동", "교문동"],
+            "남양주": ["남양주", "남양주시", "경기도남양주시", "와부", "진건"],
+            "파주": ["파주", "파주시", "경기도파주시", "운정", "문산"],
+            "고양": ["고양", "고양시", "경기도고양시", "일산", "덕양구"],
+            "의정부": ["의정부", "의정부시", "경기도의정부시", "의정부동", "호원동"]
+        }
+        
+        # 매핑된 지역명이 있으면 해당 변형들 추가
+        if destination in destination_mapping:
+            variants.extend([v.lower() for v in destination_mapping[destination]])
+        
+        # 일반적인 지역명 패턴 추가
+        if "시" in destination:
+            variants.append(destination.replace("시", "").lower())
+        if "도" in destination:
+            variants.append(destination.replace("도", "").lower())
+        if "군" in destination:
+            variants.append(destination.replace("군", "").lower())
+        
+        # 중복 제거 및 반환
+        return list(set(variants))
 
 # ========================================
 # 로깅 설정 (로그: 프로그램 실행 과정을 기록하는 것)
@@ -86,7 +650,7 @@ if not openai_api_key:
     raise ValueError("OPENAI_API_KEY 환경 변수를 설정해주세요.")
 
 # # 검색 쿼리 설정
-# query = "부산 축제 2025년 8월 -자동차 -모터쇼 -현대 -BMW -지프 -혼다"
+# query = "부산 축제"
 # headers = {
 #     "X-Naver-Client-Id": client_id,
 #     "X-Naver-Client-Secret": client_secret
@@ -208,12 +772,14 @@ app.add_middleware(
 class TripRequest(BaseModel):
     """여행 계획 요청을 받는 데이터 모델"""
     destination: str  # 목적지 (예: "제주도", "도쿄")
+    tripType: Optional[str] = ""  # 여행 유형 (도시/촌캉스)
     start_date: str  # 시작 날짜 (예: "2024-01-01")
     end_date: str    # 종료 날짜 (예: "2024-01-03")
     budget: Optional[str] = "보통"  # 예산 (선택사항, 기본값: "보통")
     interests: Optional[List[str]] = []  # 관심사 리스트 (선택사항, 기본값: 빈 리스트)
     guests: Optional[int] = 2  # 투숙객 수 (선택사항, 기본값: 2명)
     rooms: Optional[int] = 1   # 객실 수 (선택사항, 기본값: 1개)
+    travelStyle: Optional[str] = ""  # 여행 스타일
 
 class HotelInfo(BaseModel):
     """호텔 정보를 담는 데이터 모델"""
@@ -234,6 +800,7 @@ class TripPlan(BaseModel):
     accommodation: List[HotelInfo]  # 숙박 정보
     total_cost: str  # 총 예상 비용
     tips: List[str]  # 여행 팁 리스트
+    transport_info: Optional[dict] = None  # 대중교통 정보 (새로 추가)
 
 class EventInfo(BaseModel):
     """축제/행사 정보를 담는 데이터 모델"""
@@ -253,9 +820,40 @@ class EventInfo(BaseModel):
 class EventService:
     """축제/행사 정보를 제공하는 서비스"""
     
-    @staticmethod
-    def get_events_by_destination_and_date(destination: str, start_date: str, end_date: str) -> List[dict]:
+    def __init__(self):
+        self.naver_service = NaverSearchService()
+    
+    def get_events_by_destination_and_date(self, destination: str, start_date: str, end_date: str) -> List[dict]:
         """목적지와 날짜에 맞는 축제/행사 정보를 제공하는 메서드"""
+        
+        try:
+            # 먼저 네이버 API로 실시간 검색 시도
+            logger.info(f"네이버 API로 {destination} 지역 축제/행사 검색 시작")
+            naver_events = self.naver_service.search_events(destination, start_date, end_date)
+            
+            # 네이버 API 검색 결과 품질 확인
+            if naver_events and len(naver_events) >= 3:
+                logger.info(f"네이버 API 검색 결과: {len(naver_events)}개 이벤트 발견 (품질 양호)")
+                return naver_events
+            elif naver_events and len(naver_events) > 0:
+                logger.info(f"네이버 API 검색 결과: {len(naver_events)}개 이벤트 발견 (품질 부족)")
+                # 기본 데이터베이스와 병합
+                default_events = self._get_default_events(destination, start_date, end_date)
+                combined_events = naver_events + default_events
+                # 중복 제거
+                unique_events = self._remove_duplicates(combined_events)
+                return unique_events[:8]  # 최대 8개 반환
+            else:
+                # 네이버 API 검색 결과가 없는 경우 기본 데이터베이스 사용
+                logger.info("네이버 API 검색 결과가 없어 기본 데이터베이스 사용")
+                return self._get_default_events(destination, start_date, end_date)
+            
+        except Exception as e:
+            logger.warning(f"네이버 API 검색 실패, 기본 데이터베이스 사용: {e}")
+            return self._get_default_events(destination, start_date, end_date)
+    
+    def _get_default_events(self, destination: str, start_date: str, end_date: str) -> List[dict]:
+        """기본 축제/행사 데이터베이스에서 정보를 가져오는 메서드"""
         
         # 실제 축제/행사 데이터베이스 (더 많은 정보를 추가할 수 있습니다)
         events_db = {
@@ -311,7 +909,7 @@ class EventService:
                     "name": "제주 감귤 축제",
                     "date": "2024-11-01",
                     "description": "제주 특산품 감귤을 주제로 한 축제",
-                    "location": "서귀포시",
+                    "location": "제주시",
                     "type": "특산품 축제",
                     "website": None,
                     "ticket_info": "무료"
@@ -423,6 +1021,12 @@ class EventService:
             # 날짜를 datetime 객체로 변환
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
             end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            current_date = datetime.now().date()  # 현재 날짜
+            
+            # 여행 시작일이 현재 날짜보다 과거인지 확인
+            if start_dt.date() < current_date:
+                logger.info(f"과거 여행 제외: {start_date} (현재: {current_date})")
+                return []
             
             # 목적지에 해당하는 축제/행사 목록 가져오기
             destination_events = events_db.get(destination, default_events)
@@ -433,18 +1037,32 @@ class EventService:
                 try:
                     event_date = datetime.strptime(event["date"], "%Y-%m-%d")
                     
-                    # 연도에 관계없이 월과 일만 매칭 (매년 반복되는 축제/행사)
-                    start_month_day = (start_dt.month, start_dt.day)
-                    end_month_day = (end_dt.month, end_dt.day)
-                    event_month_day = (event_date.month, event_date.day)
+                    # 이미 지난 이벤트는 제외
+                    if event_date.date() < current_date:
+                        logger.info(f"과거 이벤트 제외: {event['name']} ({event['date']}) (현재: {current_date})")
+                        continue
                     
-                    # 월/일 기준으로 매칭 (더 유연하게)
-                    if (start_month_day <= event_month_day <= end_month_day) or \
-                       (start_month_day > end_month_day and  # 연도가 바뀌는 경우 (예: 12월 31일 ~ 1월 2일)
-                        (event_month_day >= start_month_day or event_month_day <= end_month_day)) or \
-                       (start_dt.month == event_date.month and start_dt.day <= event_date.day <= end_dt.day) or \
-                       (end_dt.month == event_date.month and start_dt.day <= event_date.day <= end_dt.day):
+                    # 여행 기간 내에 있는지 정확하게 확인 (연도 포함)
+                    if start_dt <= event_date <= end_dt:
                         matching_events.append(event)
+                        logger.info(f"여행 기간 내 이벤트: {event['name']} ({event['date']}) (여행: {start_date} ~ {end_date})")
+                        continue
+                    
+                    # 연도가 바뀌는 경우 (예: 12월 31일 ~ 1월 2일) - 월/일만 비교
+                    if start_dt.month > end_dt.month:
+                        # 여행이 연도를 걸치는 경우
+                        event_month_day = (event_date.month, event_date.day)
+                        start_month_day = (start_dt.month, start_dt.day)
+                        end_month_day = (end_dt.month, end_dt.day)
+                        
+                        # 월/일 기준으로 매칭
+                        if (event_month_day >= start_month_day) or (event_month_day <= end_month_day):
+                            matching_events.append(event)
+                            logger.info(f"연도 걸친 여행 기간 내 이벤트: {event['name']} ({event['date']}) (여행: {start_date} ~ {end_date})")
+                            continue
+                    
+                    # 여행 기간 밖의 이벤트는 제외
+                    logger.info(f"여행 기간 밖 이벤트 제외: {event['name']} ({event['date']}) (여행: {start_date} ~ {end_date})")
                         
                 except Exception as e:
                     # 날짜 형식이 맞지 않는 경우 건너뛰기
@@ -761,9 +1379,9 @@ async def plan_trip(request: TripRequest):
                 {{
                     "day": 1,
                     "date": "{request.start_date}",
-                    "morning": "오전 활동 (구체적인 관광지명 포함)",
-                    "afternoon": "오후 활동 (구체적인 관광지명 포함)",
-                    "evening": "저녁 활동 (구체적인 장소명 포함)",
+                    "morning": "오전 활동 (구체적인 관광지명 포함, 예: 해운대해수욕장, 자갈치시장, 여수해양공원 등)",
+                    "afternoon": "오후 활동 (구체적인 관광지명 포함, 예: 광안리해수욕장, 돌산공원, 만장굴 등)",
+                    "evening": "저녁 활동 (구체적인 장소명 포함, 예: 남포동, 센텀시티, 여수엑스포역 등)",
                     "accommodation": "숙박지 (구체적인 지역명 포함)"
                 }},
                 {{
@@ -801,9 +1419,10 @@ async def plan_trip(request: TripRequest):
         중요사항:
         1. accommodation의 name 필드에는 실제 존재하는 호텔명을 사용해주세요. 가상의 호텔명(예: "호텔 A", "추천 호텔")은 사용하지 마세요.
         2. itinerary 배열에는 여행 기간에 맞는 모든 일차를 포함해주세요. {travel_days}일 여행이면 {travel_days}개의 일차가 있어야 합니다.
-        3. 각 일차마다 오전, 오후, 저녁 활동을 구체적으로 작성해주세요.
+        3. 각 일차마다 오전, 오후, 저녁 활동을 구체적으로 작성해주세요. 특히 관광지명은 구체적으로 작성해주세요 (예: "해운대해수욕장", "자갈치시장", "여수해양공원", "돌산공원" 등).
         4. accommodation는 여행 기간에 맞게 적절한 수량을 추천해주세요.
         5. 여행 기간에 열리는 축제나 행사가 있다면, 해당 날짜의 일정에 포함시켜주세요.
+        6. 각 활동은 구체적인 장소명을 포함하여 작성해주세요. 이는 대중교통 정보 제공을 위해 중요합니다.
         """
         
         logger.info("OpenAI API 호출 시작...")
@@ -854,6 +1473,15 @@ async def plan_trip(request: TripRequest):
                     request.end_date
                 )
                 trip_data["events"] = events
+                
+                # 대중교통 정보를 추가합니다
+                transport_service = PublicTransportService()
+                transport_info = transport_service.get_itinerary_transport_info(
+                    request.destination, 
+                    trip_data.get("itinerary", [])
+                )
+                if "error" not in transport_info:
+                    trip_data["transport_info"] = transport_info
                 
                 # TripPlan 모델로 변환하여 반환합니다
                 return TripPlan(**trip_data)
@@ -910,6 +1538,13 @@ async def plan_trip(request: TripRequest):
             )
             
             # 기본 여행 계획을 반환합니다
+            # 대중교통 정보를 추가합니다
+            transport_service = PublicTransportService()
+            transport_info = transport_service.get_itinerary_transport_info(
+                request.destination, 
+                itinerary_list
+            )
+            
             return TripPlan(
                 destination=request.destination,
                 duration=f"{request.start_date} ~ {request.end_date}",
@@ -917,7 +1552,8 @@ async def plan_trip(request: TripRequest):
                 accommodation=accommodation_list,
                 events=events,  # 축제/행사 정보 추가
                 total_cost="예산에 따라 조정 가능",
-                tips=["여행 전 날씨 확인", "필수품 준비", "현지 교통 정보 파악"]
+                tips=["여행 전 날씨 확인", "필수품 준비", "현지 교통 정보 파악"],
+                transport_info=transport_info if "error" not in transport_info else None
             )
             
     except Exception as e:
@@ -1030,9 +1666,569 @@ async def health_check():
     return {"status": "healthy", "openai_key_set": bool(openai_api_key)}
 
 # ========================================
+# 대중교통 정보 API 엔드포인트
+# ========================================
+
+@app.get("/transport/info/{city}/{destination}")
+async def get_transport_info(city: str, destination: str):
+    """특정 도시의 목적지로 가는 대중교통 정보를 조회하는 API"""
+    try:
+        transport_service = PublicTransportService()
+        info = transport_service.get_transport_info(city, destination)
+        return {
+            "city": city,
+            "destination": destination,
+            "transport_info": info
+        }
+    except Exception as e:
+        logger.error(f"대중교통 정보 조회 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"대중교통 정보 조회 중 오류가 발생했습니다: {str(e)}")
+
+@app.get("/transport/destinations/{city}")
+async def get_all_destinations(city: str):
+    """특정 도시의 모든 목적지 목록을 조회하는 API"""
+    try:
+        transport_service = PublicTransportService()
+        destinations = transport_service.get_all_destinations(city)
+        return destinations
+    except Exception as e:
+        logger.error(f"목적지 목록 조회 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"목적지 목록 조회 중 오류가 발생했습니다: {str(e)}")
+
+@app.get("/transport/route")
+async def search_transport_route(
+    city: str,
+    from_location: str,
+    to_location: str
+):
+    """출발지에서 목적지로 가는 대중교통 경로를 검색하는 API"""
+    try:
+        transport_service = PublicTransportService()
+        route_info = transport_service.search_transport_routes(city, from_location, to_location)
+        return route_info
+    except Exception as e:
+        logger.error(f"경로 검색 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"경로 검색 중 오류가 발생했습니다: {str(e)}")
+
+@app.get("/transport/busan/jagalchi")
+async def get_jagalchi_transport_info():
+    """부산 자갈치시장으로 가는 대중교통 정보를 조회하는 전용 API"""
+    try:
+        transport_service = PublicTransportService()
+        info = transport_service.get_transport_info("부산", "자갈치시장")
+        return {
+            "destination": "부산 자갈치시장",
+            "description": "부산의 대표적인 수산물 시장으로 신선한 해산물과 다양한 먹거리를 즐길 수 있습니다.",
+            "transport_info": info
+        }
+    except Exception as e:
+        logger.error(f"자갈치시장 대중교통 정보 조회 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"자갈치시장 대중교통 정보 조회 중 오류가 발생했습니다: {str(e)}")
+
+@app.get("/transport/itinerary/{city}")
+async def get_itinerary_transport_info(city: str, itinerary: str):
+    """특정 도시의 여행 일정에 대한 대중교통 정보를 조회하는 API"""
+    try:
+        # itinerary는 JSON 문자열로 전달됨
+        import json
+        itinerary_data = json.loads(itinerary)
+        
+        transport_service = PublicTransportService()
+        transport_info = transport_service.get_itinerary_transport_info(city, itinerary_data)
+        
+        return {
+            "city": city,
+            "itinerary": itinerary_data,
+            "transport_info": transport_info
+        }
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="잘못된 일정 형식입니다. JSON 형식으로 전달해주세요.")
+    except Exception as e:
+        logger.error(f"일정 대중교통 정보 조회 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"일정 대중교통 정보 조회 중 오류가 발생했습니다: {str(e)}")
+
+# ========================================
 # 메인 실행 부분
 # ========================================
 # 이 파일을 직접 실행할 때만 서버를 시작합니다
 if __name__ == "__main__":
     import uvicorn  # ASGI 서버 (FastAPI를 실행하기 위한 서버)
-    uvicorn.run(app, host="0.0.0.0", port=8000)  # 모든 IP에서 접근 가능, 8000번 포트 사용 
+    
+    # 네이버 API 검색 테스트
+    print("=== 네이버 API 검색 테스트 ===")
+    try:
+        naver_service = NaverSearchService()
+        
+        # 현재 날짜 기준으로 미래 여행 테스트
+        from datetime import datetime, timedelta
+        current_date = datetime.now()
+        future_date = current_date + timedelta(days=30)  # 30일 후
+        
+        test_start = future_date.strftime("%Y-%m-%d")
+        test_end = (future_date + timedelta(days=2)).strftime("%Y-%m-%d")
+        
+        print(f"테스트 여행 기간: {test_start} ~ {test_end}")
+        test_events = naver_service.search_events("부산", test_start, test_end)
+        print(f"검색 결과: {len(test_events)}개 이벤트")
+        for i, event in enumerate(test_events[:3], 1):
+            print(f"{i}. {event['name']} ({event['date']}) - {event['source']}")
+            print(f"   점수: {event['relevance_score']}")
+            print(f"   설명: {event['description'][:100]}...")
+            print()
+    except Exception as e:
+        print(f"테스트 중 오류: {e}")
+    
+    print("=== 서버 시작 ===")
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # 모든 IP에서 접근 가능, 8000번 포트 사용
+
+# ========================================
+# 대중교통 정보 서비스 클래스
+# ========================================
+class PublicTransportService:
+    """대중교통 정보를 제공하는 서비스"""
+    
+    def __init__(self):
+        self.bus_info_db = {
+            "부산": {
+                "자갈치시장": {
+                    "description": "부산의 대표적인 수산물 시장으로 신선한 해산물과 다양한 먹거리를 즐길 수 있습니다.",
+                    "address": "부산광역시 중구 자갈치로 52",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "1003번",
+                                "description": "부산역 → 자갈치시장",
+                                "stops": ["부산역", "중앙동", "자갈치시장"],
+                                "frequency": "5-10분 간격",
+                                "fare": "1,300원",
+                                "operating_hours": "05:00 ~ 24:00"
+                            },
+                            {
+                                "route": "1001번",
+                                "description": "서면 → 자갈치시장",
+                                "stops": ["서면역", "부전동", "자갈치시장"],
+                                "frequency": "7-12분 간격",
+                                "fare": "1,300원",
+                                "operating_hours": "05:30 ~ 23:30"
+                            },
+                            {
+                                "route": "100번",
+                                "description": "해운대 → 자갈치시장",
+                                "stops": ["해운대해수욕장", "센텀시티", "자갈치시장"],
+                                "frequency": "10-15분 간격",
+                                "fare": "1,300원",
+                                "operating_hours": "06:00 ~ 23:00"
+                            },
+                            {
+                                "route": "200번",
+                                "description": "동래 → 자갈치시장",
+                                "stops": ["동래역", "온천장", "자갈치시장"],
+                                "frequency": "8-12분 간격",
+                                "fare": "1,300원",
+                                "operating_hours": "05:30 ~ 23:30"
+                            }
+                        ],
+                        "지하철": [
+                            {
+                                "line": "1호선",
+                                "station": "자갈치역",
+                                "description": "자갈치시장 바로 앞에 위치",
+                                "fare": "1,400원",
+                                "operating_hours": "05:30 ~ 24:00"
+                            }
+                        ],
+                        "도보": [
+                            {
+                                "from": "부산역",
+                                "time": "약 15분",
+                                "route": "부산역 → 중앙동 → 자갈치시장",
+                                "tips": "바다 전망을 보며 걸을 수 있는 해안 산책로 이용 가능"
+                            },
+                            {
+                                "from": "남포동",
+                                "time": "약 10분",
+                                "route": "남포동 → 광복로 → 자갈치시장",
+                                "tips": "쇼핑거리를 지나며 구경할 수 있음"
+                            }
+                        ]
+                    },
+                    "tips": [
+                        "자갈치시장은 새벽 3시부터 운영되므로 일찍 가면 더 신선한 해산물을 구할 수 있습니다",
+                        "시장 내 식당에서는 신선한 회와 해산물 요리를 맛볼 수 있습니다",
+                        "주말에는 더 많은 상인들이 나와 다양한 상품을 구경할 수 있습니다",
+                        "시장 주변에 주차장이 있지만 혼잡하므로 대중교통 이용을 권장합니다"
+                    ]
+                },
+                "해운대해수욕장": {
+                    "description": "부산의 대표적인 해수욕장으로 아름다운 백사장과 맑은 바다를 즐길 수 있습니다.",
+                    "address": "부산광역시 해운대구 해운대해변로 264",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "100번",
+                                "description": "자갈치시장 → 해운대해수욕장",
+                                "stops": ["자갈치시장", "센텀시티", "해운대해수욕장"],
+                                "frequency": "10-15분 간격",
+                                "fare": "1,300원",
+                                "operating_hours": "06:00 ~ 23:00"
+                            },
+                            {
+                                "route": "139번",
+                                "description": "부산역 → 해운대해수욕장",
+                                "stops": ["부산역", "센텀시티", "해운대해수욕장"],
+                                "frequency": "8-12분 간격",
+                                "fare": "1,300원",
+                                "operating_hours": "05:30 ~ 23:30"
+                            }
+                        ],
+                        "지하철": [
+                            {
+                                "line": "2호선",
+                                "station": "해운대역",
+                                "description": "해운대해수욕장에서 도보 5분",
+                                "fare": "1,400원",
+                                "operating_hours": "05:30 ~ 24:00"
+                            }
+                        ]
+                    }
+                },
+                "광안리해수욕장": {
+                    "description": "부산의 또 다른 아름다운 해수욕장으로 광안대교의 야경을 감상할 수 있습니다.",
+                    "address": "부산광역시 수영구 광안해변로 264",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "1003번",
+                                "description": "자갈치시장 → 광안리해수욕장",
+                                "stops": ["자갈치시장", "수영구청", "광안리해수욕장"],
+                                "frequency": "10-15분 간격",
+                                "fare": "1,300원",
+                                "operating_hours": "05:00 ~ 24:00"
+                            }
+                        ],
+                        "지하철": [
+                            {
+                                "line": "2호선",
+                                "station": "광안역",
+                                "description": "광안리해수욕장에서 도보 3분",
+                                "fare": "1,400원",
+                                "operating_hours": "05:30 ~ 24:00"
+                            }
+                        ]
+                    }
+                }
+            },
+            "여수": {
+                "여수해양공원": {
+                    "description": "여수의 아름다운 바다를 한눈에 볼 수 있는 공원입니다.",
+                    "address": "전라남도 여수시 돌산공원로 1",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "1번",
+                                "description": "여수역 → 여수해양공원",
+                                "stops": ["여수역", "여수시청", "여수해양공원"],
+                                "frequency": "10-15분 간격",
+                                "fare": "1,200원",
+                                "operating_hours": "06:00 ~ 23:00"
+                            }
+                        ],
+                        "도보": [
+                            {
+                                "from": "여수역",
+                                "time": "약 20분",
+                                "route": "여수역 → 여수시청 → 여수해양공원",
+                                "tips": "해안가를 따라 걸으며 바다 전망을 즐길 수 있습니다"
+                            }
+                        ]
+                    }
+                },
+                "돌산공원": {
+                    "description": "여수의 상징적인 공원으로 아름다운 전망을 제공합니다.",
+                    "address": "전라남도 여수시 돌산공원로 1",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "2번",
+                                "description": "여수해양공원 → 돌산공원",
+                                "stops": ["여수해양공원", "돌산공원"],
+                                "frequency": "15-20분 간격",
+                                "fare": "1,200원",
+                                "operating_hours": "06:00 ~ 23:00"
+                            }
+                        ],
+                        "도보": [
+                            {
+                                "from": "여수해양공원",
+                                "time": "약 15분",
+                                "route": "여수해양공원 → 돌산공원",
+                                "tips": "돌산을 오르며 여수 시내를 한눈에 볼 수 있습니다"
+                            }
+                        ]
+                    }
+                },
+                "여수엑스포역": {
+                    "description": "2012년 여수세계박람회가 열린 곳으로 다양한 전시관과 공원이 있습니다.",
+                    "address": "전라남도 여수시 엑스포대로 1",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "3번",
+                                "description": "돌산공원 → 여수엑스포역",
+                                "stops": ["돌산공원", "여수엑스포역"],
+                                "frequency": "20-25분 간격",
+                                "fare": "1,200원",
+                                "operating_hours": "06:00 ~ 23:00"
+                            }
+                        ],
+                        "지하철": [
+                            {
+                                "line": "여수엑스포선",
+                                "station": "여수엑스포역",
+                                "description": "엑스포역 바로 앞에 위치",
+                                "fare": "1,300원",
+                                "operating_hours": "05:30 ~ 24:00"
+                            }
+                        ]
+                    }
+                }
+            },
+            "제주": {
+                "성산일출봉": {
+                    "description": "제주도 동쪽 끝에 위치한 아름다운 일출 명소입니다.",
+                    "address": "제주특별자치도 서귀포시 성산읍 성산리",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "701번",
+                                "description": "제주시 → 성산일출봉",
+                                "stops": ["제주시", "성산일출봉"],
+                                "frequency": "30-40분 간격",
+                                "fare": "1,200원",
+                                "operating_hours": "06:00 ~ 22:00"
+                            }
+                        ],
+                        "도보": [
+                            {
+                                "from": "성산항",
+                                "time": "약 25분",
+                                "route": "성산항 → 성산일출봉",
+                                "tips": "해안가를 따라 걸으며 아름다운 바다 전망을 즐길 수 있습니다"
+                            }
+                        ]
+                    }
+                },
+                "만장굴": {
+                    "description": "세계자연유산으로 지정된 용암동굴입니다.",
+                    "address": "제주특별자치도 제주시 구좌읍 만장굴길 182",
+                    "transportation": {
+                        "버스": [
+                            {
+                                "route": "702번",
+                                "description": "성산일출봉 → 만장굴",
+                                "stops": ["성산일출봉", "만장굴"],
+                                "frequency": "40-50분 간격",
+                                "fare": "1,200원",
+                                "operating_hours": "06:00 ~ 22:00"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    
+    def get_transport_info(self, city: str, destination: str) -> dict:
+        """특정 도시의 목적지로 가는 대중교통 정보를 제공하는 메서드"""
+        try:
+            if city not in self.bus_info_db:
+                return {
+                    "error": f"{city}의 대중교통 정보가 준비되지 않았습니다.",
+                    "available_cities": list(self.bus_info_db.keys())
+                }
+            
+            if destination not in self.bus_info_db[city]:
+                return {
+                    "error": f"{city}의 {destination}으로 가는 대중교통 정보가 준비되지 않았습니다.",
+                    "available_destinations": list(self.bus_info_db[city].keys())
+                }
+            
+            return self.bus_info_db[city][destination]
+            
+        except Exception as e:
+            logger.error(f"대중교통 정보 조회 중 오류: {e}")
+            return {"error": "대중교통 정보 조회 중 오류가 발생했습니다."}
+    
+    def get_all_destinations(self, city: str) -> dict:
+        """특정 도시의 모든 목적지 목록을 제공하는 메서드"""
+        try:
+            if city not in self.bus_info_db:
+                return {
+                    "error": f"{city}의 정보가 준비되지 않았습니다.",
+                    "available_cities": list(self.bus_info_db.keys())
+                }
+            
+            destinations = self.bus_info_db[city]
+            return {
+                "city": city,
+                "destinations": list(destinations.keys()),
+                "total_destinations": len(destinations)
+            }
+            
+        except Exception as e:
+            logger.error(f"목적지 목록 조회 중 오류: {e}")
+            return {"error": "목적지 목록 조회 중 오류가 발생했습니다."}
+    
+    def search_transport_routes(self, city: str, from_location: str, to_location: str) -> dict:
+        """출발지에서 목적지로 가는 대중교통 경로를 검색하는 메서드"""
+        try:
+            if city not in self.bus_info_db:
+                return {"error": f"{city}의 정보가 준비되지 않았습니다."}
+            
+            if to_location not in self.bus_info_db[city]:
+                return {"error": f"{city}의 {to_location} 정보가 준비되지 않았습니다."}
+            
+            # 간단한 경로 검색 (실제로는 더 복잡한 알고리즘이 필요)
+            transport_info = self.bus_info_db[city][to_location]
+            
+            # 출발지별 추천 경로 생성
+            recommended_routes = []
+            
+            if from_location == "부산역":
+                recommended_routes.append({
+                    "route_type": "버스",
+                    "route": "1003번",
+                    "description": "부산역에서 자갈치시장까지 직행",
+                    "estimated_time": "약 20분",
+                    "fare": "1,300원"
+                })
+                recommended_routes.append({
+                    "route_type": "지하철",
+                    "line": "1호선",
+                    "description": "부산역 → 자갈치역",
+                    "estimated_time": "약 15분",
+                    "fare": "1,400원"
+                })
+            elif from_location == "서면":
+                recommended_routes.append({
+                    "route_type": "버스",
+                    "route": "1001번",
+                    "description": "서면에서 자갈치시장까지 직행",
+                    "estimated_time": "약 25분",
+                    "fare": "1,300원"
+                })
+            elif from_location == "해운대":
+                recommended_routes.append({
+                    "route_type": "버스",
+                    "route": "100번",
+                    "description": "해운대에서 자갈치시장까지 직행",
+                    "estimated_time": "약 35분",
+                    "fare": "1,300원"
+                })
+            else:
+                # 일반적인 경로 정보 제공
+                for transport_type, routes in transport_info["transportation"].items():
+                    if transport_type == "버스" and routes:
+                        recommended_routes.append({
+                            "route_type": transport_type,
+                            "route": routes[0]["route"],
+                            "description": routes[0]["description"],
+                            "estimated_time": "시간은 출발지에 따라 다름",
+                            "fare": routes[0]["fare"]
+                        })
+                        break
+            
+            return {
+                "from": from_location,
+                "to": to_location,
+                "city": city,
+                "recommended_routes": recommended_routes,
+                "all_transport_options": transport_info["transportation"]
+            }
+            
+        except Exception as e:
+            logger.error(f"경로 검색 중 오류: {e}")
+            return {"error": "경로 검색 중 오류가 발생했습니다."}
+    
+    def get_itinerary_transport_info(self, city: str, itinerary: List[dict]) -> dict:
+        """여행 일정의 장소들 간 이동 정보를 제공하는 메서드"""
+        try:
+            if city not in self.bus_info_db:
+                return {"error": f"{city}의 정보가 준비되지 않았습니다."}
+            
+            transport_info = {}
+            
+            # 각 일차별로 장소들을 추출하고 이동 정보 생성
+            for day_info in itinerary:
+                day = day_info.get("day", 0)
+                day_transport = []
+                
+                # 오전, 오후, 저녁 활동에서 장소명 추출
+                activities = [
+                    ("오전", day_info.get("morning", "")),
+                    ("오후", day_info.get("afternoon", "")),
+                    ("저녁", day_info.get("evening", ""))
+                ]
+                
+                # 이전 장소에서 다음 장소로의 이동 정보 생성
+                for i in range(len(activities) - 1):
+                    current_activity = activities[i]
+                    next_activity = activities[i + 1]
+                    
+                    # 장소명에서 주요 관광지명 추출 (간단한 키워드 매칭)
+                    current_location = self._extract_location_name(current_activity[1], city)
+                    next_location = self._extract_location_name(next_activity[1], city)
+                    
+                    if current_location and next_location:
+                        route_info = self.search_transport_routes(city, current_location, next_location)
+                        if "error" not in route_info:
+                            day_transport.append({
+                                "from": current_location,
+                                "to": next_location,
+                                "time": f"{current_activity[0]} → {next_activity[0]}",
+                                "transport_info": route_info
+                            })
+                
+                if day_transport:
+                    transport_info[f"day_{day}"] = day_transport
+            
+            return {
+                "city": city,
+                "itinerary_transport": transport_info,
+                "total_days": len(itinerary)
+            }
+            
+        except Exception as e:
+            logger.error(f"일정 이동 정보 생성 중 오류: {e}")
+            return {"error": "일정 이동 정보 생성 중 오류가 발생했습니다."}
+    
+    def _extract_location_name(self, activity_text: str, city: str) -> str:
+        """활동 텍스트에서 장소명을 추출하는 메서드"""
+        try:
+            # 도시별 주요 관광지 키워드 매칭
+            if city in self.bus_info_db:
+                for destination in self.bus_info_db[city].keys():
+                    if destination in activity_text:
+                        return destination
+            
+            # 일반적인 관광지 키워드 매칭
+            common_keywords = [
+                "해수욕장", "공원", "시장", "역", "항", "봉", "굴", "사", "궁", "성", "탑", "다리", "거리", "로"
+            ]
+            
+            for keyword in common_keywords:
+                if keyword in activity_text:
+                    # 키워드 주변 텍스트에서 장소명 추출 시도
+                    start_idx = activity_text.find(keyword)
+                    if start_idx > 0:
+                        # 키워드 앞의 10글자 정도를 확인하여 장소명 추출
+                        potential_name = activity_text[max(0, start_idx-10):start_idx + len(keyword)]
+                        # 불필요한 문자 제거
+                        clean_name = re.sub(r'[^\w\s가-힣]', '', potential_name).strip()
+                        if clean_name and len(clean_name) > 2:
+                            return clean_name
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"장소명 추출 중 오류: {e}")
+            return None

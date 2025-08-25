@@ -17,9 +17,9 @@ function App(): JSX.Element {
   };
 
   return (
-    <div className="app-container">
+    <div className="App">
       <Header />
-      <main className="app-main">
+      <main className="container" style={{ paddingTop: '2rem', paddingBottom: '2rem' }}>
         {!tripPlan ? (
           <TripPlanner 
             onTripGenerated={handleTripGenerated}
