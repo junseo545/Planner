@@ -1066,3 +1066,260 @@
     font-size: 1rem;
   }
 }
+
+/* 전체 여행 호텔 검색 스타일 */
+.trip-hotel-search-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 20px;
+  padding: 2.5rem;
+  margin-bottom: 2.5rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08), 0 8px 25px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+}
+
+.trip-hotel-search-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 2rem;
+  text-align: center;
+  letter-spacing: -0.025em;
+}
+
+.trip-hotel-search-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.search-info-header {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.search-info-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.search-info-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.info-label {
+  font-weight: 600;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.info-value {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 1rem;
+}
+
+.search-links-section {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.search-links-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 1rem;
+}
+
+.search-links-description {
+  color: #64748b;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+  font-size: 1rem;
+}
+
+.search-links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.search-link-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #f8fafc;
+  color: #475569;
+  text-decoration: none !important;
+  padding: 1.5rem;
+  border-radius: 16px;
+  border: 2px solid #e2e8f0;
+  transition: all 0.3s ease;
+  font-weight: 600;
+  position: relative;
+  overflow: hidden;
+}
+
+.search-link-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.search-link-card:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+  text-decoration: none !important;
+}
+
+.search-link-card:hover::before {
+  transform: scaleX(1);
+}
+
+.search-link-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
+}
+
+.search-link-content {
+  flex: 1;
+}
+
+.search-link-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 0.5rem 0;
+}
+
+.search-link-description {
+  color: #64748b;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.search-link-arrow {
+  color: #3b82f6;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.search-link-card:hover .search-link-arrow {
+  transform: translateX(4px);
+}
+
+.search-link-card:focus {
+  text-decoration: none !important;
+  outline: none;
+}
+
+.search-link-card:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* 반응형 전체 여행 호텔 검색 */
+@media (max-width: 768px) {
+  .trip-hotel-search-card {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .trip-hotel-search-title {
+    font-size: 1.5rem;
+  }
+  
+  .search-info-header,
+  .search-links-section {
+    padding: 1.5rem;
+  }
+  
+  .search-info-title,
+  .search-links-title {
+    font-size: 1.25rem;
+  }
+  
+  .search-info-details {
+    grid-template-columns: 1fr;
+  }
+  
+  .search-links-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .search-link-card {
+    padding: 1.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .trip-hotel-search-card {
+    padding: 1rem;
+  }
+  
+  .trip-hotel-search-title {
+    font-size: 1.25rem;
+  }
+  
+  .search-info-header,
+  .search-links-section {
+    padding: 1rem;
+  }
+  
+  .search-info-title,
+  .search-links-title {
+    font-size: 1.125rem;
+  }
+  
+  .search-link-card {
+    padding: 1rem;
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .search-link-icon {
+    width: 50px;
+    height: 50px;
+    font-size: 1.5rem;
+  }
+}

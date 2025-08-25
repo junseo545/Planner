@@ -26,15 +26,6 @@ export interface TripPlan {
     evening: string;
     accommodation: string;
   }>;
-  events?: Array<{
-    name: string;
-    date: string;
-    description: string;
-    location: string;
-    type: string;
-    website?: string;
-    ticket_info?: string;
-  }>;
   accommodation: HotelInfo[];
   total_cost: string;
   tips: string[];
@@ -62,14 +53,29 @@ export interface TripPlan {
     };
     total_days: number;
   };
+  trip_hotel_search?: {
+    destination: string;
+    check_in: string;
+    check_out: string;
+    guests: number;
+    rooms: number;
+    search_links: {
+      [siteKey: string]: {
+        name: string;
+        url: string;
+        icon: string;
+        description: string;
+      };
+    };
+  };
 }
 
 export interface FormData {
   // 단계별 선택을 위한 필드들
-  tripType: string; // '도시' 또는 '촌캉스'
   region: string; // 지역 선택
   customRegion: string; // 직접 입력한 지역
   guests: number; // 인원수
+  companionType: string; // 누구랑 가는지 (연인, 친구, 가족 등)
   travelStyle: string; // 여행 스타일
   budget: string; // 예산
   interests: string[]; // 관심사

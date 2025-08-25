@@ -772,12 +772,13 @@ app.add_middleware(
 class TripRequest(BaseModel):
     """여행 계획 요청을 받는 데이터 모델"""
     destination: str  # 목적지 (예: "제주도", "도쿄")
-    tripType: Optional[str] = ""  # 여행 유형 (도시/촌캉스)
+    
     start_date: str  # 시작 날짜 (예: "2024-01-01")
     end_date: str    # 종료 날짜 (예: "2024-01-03")
     budget: Optional[str] = "보통"  # 예산 (선택사항, 기본값: "보통")
     interests: Optional[List[str]] = []  # 관심사 리스트 (선택사항, 기본값: 빈 리스트)
     guests: Optional[int] = 2  # 투숙객 수 (선택사항, 기본값: 2명)
+    companionType: Optional[str] = ""  # 동반자 유형 (연인, 친구, 가족 등)
     rooms: Optional[int] = 1   # 객실 수 (선택사항, 기본값: 1개)
     travelStyle: Optional[str] = ""  # 여행 스타일
 
@@ -796,21 +797,13 @@ class TripPlan(BaseModel):
     destination: str  # 목적지
     duration: str  # 여행 기간
     itinerary: List[dict]  # 일정표 (각 날짜별 활동)
-    events: List[dict]  # 축제/행사 정보 (새로 추가)
     accommodation: List[HotelInfo]  # 숙박 정보
     total_cost: str  # 총 예상 비용
     tips: List[str]  # 여행 팁 리스트
-    transport_info: Optional[dict] = None  # 대중교통 정보 (새로 추가)
+    transport_info: Optional[dict] = None  # 대중교통 정보
+    trip_hotel_search: Optional[dict] = None  # 전체 여행에 대한 호텔 검색 링크
 
-class EventInfo(BaseModel):
-    """축제/행사 정보를 담는 데이터 모델"""
-    name: str  # 축제/행사 이름
-    date: str  # 날짜
-    description: str  # 설명
-    location: str  # 장소
-    type: str  # 유형 (축제, 행사, 전시회 등)
-    website: Optional[str] = None  # 공식 웹사이트 (선택사항)
-    ticket_info: Optional[str] = None  # 티켓 정보 (선택사항)
+
 
 # ========================================
 # 축제/행사 정보 서비스 클래스
@@ -1290,7 +1283,7 @@ class HotelSearchService:
         links = {
             "trip_dot_com": {
                 "name": "트립닷컴",
-                "url": f"https://www.trip.com/hotels/list?city={encoded_destination}&checkin={check_in_formatted}&checkout={check_out_formatted}&adult={guests}&room={rooms}",
+                "url": f"https://kr.trip.com/hotels/list?searchWord={encoded_destination}&checkin={check_in_formatted}&checkout={check_out_formatted}&adult={guests}&children=0&locale=ko-KR&curr=KRW",
                 "icon": "🏨"
             },
             "airbnb": {
@@ -1300,7 +1293,7 @@ class HotelSearchService:
             },
             "agoda": {
                 "name": "아고다",
-                "url": f"https://www.agoda.com/search?city={encoded_destination}&checkIn={check_in}&checkOut={check_out}&rooms={rooms}&adults={guests}&children=0&travellerType=1",
+                "url": f"https://www.agoda.com/ko-kr/search?textToSearch={encoded_destination}&checkIn={check_in}&checkOut={check_out}&rooms={rooms}&adults={guests}&children=0&locale=ko-kr&currency=KRW&travellerType=1",
                 "icon": "🛏️"
             },
             "booking": {
@@ -1312,11 +1305,93 @@ class HotelSearchService:
         
         # 특정 호텔명이 있는 경우 더 구체적인 검색 링크를 생성합니다
         if hotel_name:
-            links["trip_dot_com"]["url"] = f"https://www.trip.com/hotels/list?city={encoded_destination}&hotelName={encoded_hotel_name}&checkin={check_in_formatted}&checkout={check_out_formatted}&adult={guests}&room={rooms}"
-            links["agoda"]["url"] = f"https://www.agoda.com/search?city={encoded_destination}&hotelName={encoded_hotel_name}&checkIn={check_in}&checkOut={check_out}&rooms={rooms}&adults={guests}&children=0&travellerType=1"
+            links["trip_dot_com"]["url"] = f"https://kr.trip.com/hotels/list?searchWord={encoded_destination}&hotelName={encoded_hotel_name}&checkin={check_in_formatted}&checkout={check_out_formatted}&adult={guests}&children=0&locale=ko-KR&curr=KRW"
+            links["agoda"]["url"] = f"https://www.agoda.com/ko-kr/search?textToSearch={encoded_destination}&hotelName={encoded_hotel_name}&checkIn={check_in}&checkOut={check_out}&rooms={rooms}&adults={guests}&children=0&locale=ko-kr&currency=KRW&travellerType=1"
             links["booking"]["url"] = f"https://www.booking.com/searchresults.html?ss={encoded_destination}&hotelName={encoded_hotel_name}&checkin={check_in}&checkout={check_out}&group_adults={guests}&no_rooms={rooms}"
         
         return links
+    
+    @staticmethod
+    def create_trip_hotel_search_links(destination: str, check_in: str, check_out: str, guests: int, rooms: int) -> dict:
+        """전체 여행에 대한 호텔 검색 링크를 생성하는 메서드"""
+        # 주요 호텔 예약 사이트들의 검색 링크 생성
+        search_links = {
+            "trip_dot_com": {
+                "name": "트립닷컴",
+                "url": f"https://kr.trip.com/hotels/list?searchWord={urllib.parse.quote(destination)}&checkin={check_in}&checkout={check_out}&adult={guests}&children=0&crn={rooms}&locale=ko-KR&curr=KRW",
+                "icon": "🏨",
+                "description": "트립닷컴에서 호텔 검색하기"
+            },
+            "yeogi": {
+                "name": "여기어때",
+                "url": f"https://www.yeogi.com/domestic-accommodations?keyword={urllib.parse.quote(destination)}&checkIn={check_in}&checkOut={check_out}&personal={guests}&freeForm=false",
+                "icon": "🏨",
+                "description": "여기어때에서 호텔 검색하기"
+            },
+            "booking": {
+                "name": "부킹닷컴",
+                "url": f"https://www.booking.com/searchresults.html?ss={urllib.parse.quote(destination)}&checkin={check_in}&checkout={check_out}&group_adults={guests}&no_rooms={rooms}",
+                "icon": "📅",
+                "description": "부킹닷컴에서 호텔 검색하기"
+            },
+            "airbnb": {
+                "name": "에어비앤비",
+                "url": f"https://www.airbnb.co.kr/s/{urllib.parse.quote(destination)}/homes?checkin={check_in}&checkout={check_out}&adults={guests}&children=0&infants=0&pets=0",
+                "icon": "🏠",
+                "description": "에어비앤비에서 숙소 검색하기"
+            }
+        }
+        
+        return {
+            "destination": destination,
+            "check_in": check_in,
+            "check_out": check_out,
+            "guests": guests,
+            "rooms": rooms,
+            "search_links": search_links
+        }
+    
+    @staticmethod
+    def _extract_location_from_activity(activity_text: str, destination: str) -> str:
+        """활동 텍스트에서 주요 장소명을 추출하는 메서드"""
+        if not activity_text:
+            return destination
+        
+        # 주요 관광지 키워드 패턴
+        location_patterns = [
+            r'([가-힣]+해수욕장)',  # 해수욕장
+            r'([가-힣]+시장)',      # 시장
+            r'([가-힣]+공원)',      # 공원
+            r'([가-힣]+역)',        # 역
+            r'([가-힣]+항)',        # 항
+            r'([가-힣]+봉)',        # 봉
+            r'([가-힣]+굴)',        # 굴
+            r'([가-힣]+사)',        # 사찰
+            r'([가-힣]+궁)',        # 궁궐
+            r'([가-힣]+성)',        # 성
+            r'([가-힣]+탑)',        # 탑
+            r'([가-힣]+다리)',      # 다리
+            r'([가-힣]+거리)',      # 거리
+            r'([가-힣]+로)',        # 도로
+            r'([가-힣]+동)',        # 동
+            r'([가-힣]+구)',        # 구
+            r'([가-힣]+읍)',        # 읍
+            r'([가-힣]+면)'         # 면
+        ]
+        
+        for pattern in location_patterns:
+            match = re.search(pattern, activity_text)
+            if match:
+                return match.group(1)
+        
+        # 특정 키워드가 없으면 전체 활동 텍스트에서 첫 번째 명사 추출
+        words = activity_text.split()
+        for word in words:
+            if len(word) >= 2 and re.match(r'^[가-힣]+$', word):
+                return word
+        
+        # 추출 실패 시 기본 목적지 반환
+        return destination
 
 # ========================================
 # API 엔드포인트 정의
@@ -1335,9 +1410,8 @@ async def plan_trip(request: TripRequest):
         # 로그에 요청 정보를 기록합니다
         logger.info(f"여행 계획 생성 요청: {request.destination}, {request.start_date} ~ {request.end_date}")
         
-        # 호텔 검색 서비스와 축제/행사 서비스를 초기화합니다
+        # 호텔 검색 서비스를 초기화합니다
         hotel_service = HotelSearchService()
-        event_service = EventService()
         
         # 여행 일수를 계산합니다
         try:
@@ -1347,21 +1421,8 @@ async def plan_trip(request: TripRequest):
         except:
             travel_days = 3  # 날짜 계산에 실패하면 기본값 3일을 사용합니다
         
-        # 축제/행사 정보를 미리 가져와서 AI에게 제공합니다
-        events = event_service.get_events_by_destination_and_date(
-            request.destination, 
-            request.start_date, 
-            request.end_date
-        )
-        
         # OpenAI API에 전달할 프롬프트(질문)를 생성합니다
         # 프롬프트는 AI에게 무엇을 해달라고 요청하는 메시지입니다
-        events_info = ""
-        if events:
-            events_info = f"\n\n여행 기간에 열리는 축제/행사 정보:\n"
-            for event in events:
-                events_info += f"- {event['name']} ({event['date']}): {event['description']} - {event['location']}\n"
-        
         prompt = f"""
         다음 조건에 맞는 상세한 여행 계획을 한국어로 작성해주세요:
         
@@ -1369,7 +1430,7 @@ async def plan_trip(request: TripRequest):
         여행 기간: {request.start_date} ~ {request.end_date} (총 {travel_days}일)
         예산: {request.budget}
         관심사: {', '.join(request.interests) if request.interests else '일반적인 관광'}
-        투숙객: {request.guests}명, 객실: {request.rooms}개{events_info}
+        투숙객: {request.guests}명, 객실: {request.rooms}개
         
         다음 형식으로 JSON 응답을 제공해주세요:
         {{
@@ -1421,8 +1482,7 @@ async def plan_trip(request: TripRequest):
         2. itinerary 배열에는 여행 기간에 맞는 모든 일차를 포함해주세요. {travel_days}일 여행이면 {travel_days}개의 일차가 있어야 합니다.
         3. 각 일차마다 오전, 오후, 저녁 활동을 구체적으로 작성해주세요. 특히 관광지명은 구체적으로 작성해주세요 (예: "해운대해수욕장", "자갈치시장", "여수해양공원", "돌산공원" 등).
         4. accommodation는 여행 기간에 맞게 적절한 수량을 추천해주세요.
-        5. 여행 기간에 열리는 축제나 행사가 있다면, 해당 날짜의 일정에 포함시켜주세요.
-        6. 각 활동은 구체적인 장소명을 포함하여 작성해주세요. 이는 대중교통 정보 제공을 위해 중요합니다.
+        5. 각 활동은 구체적인 장소명을 포함하여 작성해주세요. 이는 호텔 검색과 대중교통 정보 제공을 위해 중요합니다.
         """
         
         logger.info("OpenAI API 호출 시작...")
@@ -1466,13 +1526,15 @@ async def plan_trip(request: TripRequest):
                         hotel.get("name", "")  # 호텔명을 링크 생성에 포함
                     )
                 
-                # 축제/행사 정보를 가져와서 추가합니다
-                events = event_service.get_events_by_destination_and_date(
-                    request.destination, 
-                    request.start_date, 
-                    request.end_date
+                # 전체 여행에 대한 호텔 검색 링크를 생성합니다
+                trip_hotel_search = hotel_service.create_trip_hotel_search_links(
+                    request.destination,
+                    request.start_date,
+                    request.end_date,
+                    request.guests,
+                    request.rooms
                 )
-                trip_data["events"] = events
+                trip_data["trip_hotel_search"] = trip_hotel_search
                 
                 # 대중교통 정보를 추가합니다
                 transport_service = PublicTransportService()
@@ -1530,14 +1592,15 @@ async def plan_trip(request: TripRequest):
                     "accommodation": f"{request.destination} 추천 호텔"
                 })
             
-            # 축제/행사 정보를 가져옵니다
-            events = event_service.get_events_by_destination_and_date(
-                request.destination, 
-                request.start_date, 
-                request.end_date
+            # 전체 여행에 대한 호텔 검색 링크를 생성합니다
+            trip_hotel_search = hotel_service.create_trip_hotel_search_links(
+                request.destination,
+                request.start_date,
+                request.end_date,
+                request.guests,
+                request.rooms
             )
             
-            # 기본 여행 계획을 반환합니다
             # 대중교통 정보를 추가합니다
             transport_service = PublicTransportService()
             transport_info = transport_service.get_itinerary_transport_info(
@@ -1545,15 +1608,24 @@ async def plan_trip(request: TripRequest):
                 itinerary_list
             )
             
+            # 여행 기간 계산
+            start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
+            end_date = datetime.strptime(request.end_date, "%Y-%m-%d")
+            travel_days = (end_date - start_date).days
+            
+            # 1인당 예상 비용 계산 (간단한 추정)
+            base_cost_per_day = 150000  # 1일 15만원 기준
+            estimated_cost_per_person = base_cost_per_day * travel_days
+            
             return TripPlan(
                 destination=request.destination,
                 duration=f"{request.start_date} ~ {request.end_date}",
                 itinerary=itinerary_list,
                 accommodation=accommodation_list,
-                events=events,  # 축제/행사 정보 추가
-                total_cost="예산에 따라 조정 가능",
+                total_cost=f"1인당 약 {estimated_cost_per_person:,}원",
                 tips=["여행 전 날씨 확인", "필수품 준비", "현지 교통 정보 파악"],
-                transport_info=transport_info if "error" not in transport_info else None
+                transport_info=transport_info if "error" not in transport_info else None,
+                trip_hotel_search=trip_hotel_search
             )
             
     except Exception as e:
@@ -1599,26 +1671,7 @@ async def get_popular_hotels(destination: str):
         logger.error(f"인기 호텔 정보 조회 중 오류 발생: {str(e)}")
         raise HTTPException(status_code=500, detail=f"인기 호텔 정보 조회 중 오류가 발생했습니다: {str(e)}")
 
-@app.get("/events")
-async def get_events(
-    destination: str,
-    start_date: str,
-    end_date: str
-):
-    """특정 목적지와 기간의 축제/행사 정보를 조회하는 API"""
-    try:
-        event_service = EventService()
-        events = event_service.get_events_by_destination_and_date(destination, start_date, end_date)
-        return {
-            "destination": destination,
-            "start_date": start_date,
-            "end_date": end_date,
-            "events": events,
-            "total_events": len(events)
-        }
-    except Exception as e:
-        logger.error(f"축제/행사 정보 조회 중 오류 발생: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"축제/행사 정보 조회 중 오류가 발생했습니다: {str(e)}")
+
 
 @app.get("/hotel-search")
 async def search_hotels(
@@ -1753,30 +1806,6 @@ async def get_itinerary_transport_info(city: str, itinerary: str):
 # 이 파일을 직접 실행할 때만 서버를 시작합니다
 if __name__ == "__main__":
     import uvicorn  # ASGI 서버 (FastAPI를 실행하기 위한 서버)
-    
-    # 네이버 API 검색 테스트
-    print("=== 네이버 API 검색 테스트 ===")
-    try:
-        naver_service = NaverSearchService()
-        
-        # 현재 날짜 기준으로 미래 여행 테스트
-        from datetime import datetime, timedelta
-        current_date = datetime.now()
-        future_date = current_date + timedelta(days=30)  # 30일 후
-        
-        test_start = future_date.strftime("%Y-%m-%d")
-        test_end = (future_date + timedelta(days=2)).strftime("%Y-%m-%d")
-        
-        print(f"테스트 여행 기간: {test_start} ~ {test_end}")
-        test_events = naver_service.search_events("부산", test_start, test_end)
-        print(f"검색 결과: {len(test_events)}개 이벤트")
-        for i, event in enumerate(test_events[:3], 1):
-            print(f"{i}. {event['name']} ({event['date']}) - {event['source']}")
-            print(f"   점수: {event['relevance_score']}")
-            print(f"   설명: {event['description'][:100]}...")
-            print()
-    except Exception as e:
-        print(f"테스트 중 오류: {e}")
     
     print("=== 서버 시작 ===")
     uvicorn.run(app, host="0.0.0.0", port=8000)  # 모든 IP에서 접근 가능, 8000번 포트 사용

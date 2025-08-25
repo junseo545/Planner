@@ -6,10 +6,10 @@ import { TripPlan, TripPlannerProps, FormData } from '../types';
 const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, setLoading }): JSX.Element => {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>({
-    tripType: '',
     region: '',
     customRegion: '',
     guests: 2,
+    companionType: '',
     travelStyle: '',
     budget: '보통',
     interests: [],
@@ -18,12 +18,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     end_date: ''
   });
 
-  const tripTypeOptions = ['도시', '촌캉스'];
-  
-  const regionOptions = {
-    '도시': ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '제주도'],
-    '촌캉스': ['강원도', '충청북도', '충청남도', '전라북도', '전라남도', '경상북도', '경상남도', '제주도']
-  };
+  const companionTypeOptions = ['연인', '친구', '가족', '혼자', '동료', '기타'];
 
   const travelStyleOptions = [
     '자연 관광', '문화 체험', '맛집 탐방', '쇼핑', '액티비티', '휴양', '역사 탐방'
@@ -37,27 +32,25 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     }));
   };
 
-  const handleTripTypeSelect = (tripType: string): void => {
-    setFormData(prev => ({
-      ...prev,
-      tripType,
-      region: '',
-      customRegion: ''
-    }));
-    setCurrentStep(2);
-  };
-
   const handleCustomRegionInput = (): void => {
     if (formData.customRegion.trim()) {
       setFormData(prev => ({
         ...prev,
         region: formData.customRegion
       }));
-      setCurrentStep(3);
+      setCurrentStep(2);
     }
   };
 
   const handleGuestsSelect = (): void => {
+    if (formData.guests >= 2) {
+      setCurrentStep(3); // 동반자 유형 선택 단계로
+    } else {
+      setCurrentStep(4); // 여행 스타일 선택 단계로
+    }
+  };
+
+  const handleCompanionTypeSelect = (): void => {
     setCurrentStep(4);
   };
 
@@ -86,7 +79,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     
-    if (!formData.tripType || (!formData.region && !formData.customRegion) || !formData.guests || !formData.travelStyle) {
+    if ((!formData.region && !formData.customRegion) || !formData.guests || !formData.travelStyle) {
       alert('필수 정보를 모두 입력해주세요.');
       return;
     }
@@ -97,8 +90,8 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       // 백엔드로 전송할 데이터 준비
       const submitData = {
         destination: formData.region || formData.customRegion,
-        tripType: formData.tripType,
         guests: formData.guests,
+        companionType: formData.companionType,
         travelStyle: formData.travelStyle,
         budget: formData.budget,
         interests: formData.interests,
@@ -129,28 +122,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   const renderStep1 = (): JSX.Element => (
     <div className="step-container">
-      <h3 className="step-title">어떤 여행을 계획하시나요?</h3>
-      <div className="options-grid">
-        {tripTypeOptions.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => handleTripTypeSelect(option)}
-            className="option-button"
-          >
-            <div className="option-icon">
-              {option === '도시' ? <MapPin /> : <Heart />}
-            </div>
-            <span className="option-text">{option}</span>
-            <ArrowRight className="option-arrow" />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderStep2 = (): JSX.Element => (
-    <div className="step-container">
       <h3 className="step-title">어떤 지역으로 여행하시나요?</h3>
       
       <div className="region-input-section">
@@ -180,7 +151,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     </div>
   );
 
-  const renderStep3 = (): JSX.Element => (
+  const renderStep2 = (): JSX.Element => (
     <div className="step-container">
       <h3 className="step-title">몇 명이서 여행하시나요?</h3>
       <div className="guests-selection">
@@ -202,6 +173,34 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           다음 <ArrowRight />
         </button>
       </div>
+    </div>
+  );
+
+  const renderStep3 = (): JSX.Element => (
+    <div className="step-container">
+      <h3 className="step-title">누구와 함께 여행하시나요?</h3>
+      <div className="companion-options-grid">
+        {companionTypeOptions.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => {
+              setFormData(prev => ({ ...prev, companionType: option }));
+            }}
+            className={`companion-option ${formData.companionType === option ? 'selected' : ''}`}
+          >
+            <span className="companion-text">{option}</span>
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={handleCompanionTypeSelect}
+        disabled={!formData.companionType}
+        className="next-button"
+      >
+        다음 <ArrowRight />
+      </button>
     </div>
   );
 
@@ -340,9 +339,9 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           >
             <span className="progress-number">{step}</span>
             <span className="progress-label">
-              {step === 1 && '여행 유형'}
-              {step === 2 && '지역 선택'}
-              {step === 3 && '인원수'}
+              {step === 1 && '지역 선택'}
+              {step === 2 && '인원수'}
+              {step === 3 && '동반자 유형'}
               {step === 4 && '여행 스타일'}
               {step === 5 && '추가 정보'}
             </span>
@@ -353,24 +352,26 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       {/* 현재 선택된 정보 요약 */}
       {currentStep > 1 && (
         <div className="selection-summary">
-          <div className="summary-item">
-            <strong>여행 유형:</strong> {formData.tripType}
-          </div>
           {getDestination() && (
             <div className="summary-item">
               <strong>선택 지역:</strong> {getDestination()}
             </div>
           )}
-                     {currentStep >= 3 && formData.guests > 0 && (
-             <div className="summary-item">
-               <strong>인원수:</strong> {formData.guests}명
-             </div>
-           )}
-                     {currentStep >= 4 && formData.interests.length > 0 && (
-             <div className="summary-item">
-               <strong>여행 스타일:</strong> {formData.interests.join(', ')}
-             </div>
-           )}
+          {currentStep >= 2 && formData.guests > 0 && (
+            <div className="summary-item">
+              <strong>인원수:</strong> {formData.guests}명
+            </div>
+          )}
+          {currentStep >= 3 && formData.companionType && (
+            <div className="summary-item">
+              <strong>동반자:</strong> {formData.companionType}
+            </div>
+          )}
+          {currentStep >= 4 && formData.interests.length > 0 && (
+            <div className="summary-item">
+              <strong>여행 스타일:</strong> {formData.interests.join(', ')}
+            </div>
+          )}
         </div>
       )}
 

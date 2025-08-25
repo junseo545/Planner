@@ -1,32 +1,17 @@
 import React from 'react';
-import { ArrowLeft, Calendar, MapPin, DollarSign, ExternalLink, Download, Share2, Star, Wifi, Car, Coffee, Sparkles } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Download, Share2, Sparkles, MapPin, Calendar, DollarSign } from 'lucide-react';
 import { TripPlan, TripResultProps } from '../types';
 
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Element => {
-  // 해당 날짜의 이벤트를 찾는 함수
-  const getEventsForDate = (date: string) => {
-    if (!tripPlan.events) return [];
-    return tripPlan.events.filter(event => event.date === date);
-  };
-
-  // 일정표에 이벤트 정보를 통합하는 함수
-  const renderScheduleWithEvents = (day: any) => {
-    const dayEvents = getEventsForDate(day.date);
-    const hasEvents = dayEvents.length > 0;
-
+  // 일정표를 렌더링하는 함수
+  const renderSchedule = (day: any) => {
     return (
-      <div key={day.day} className={`itinerary-day ${hasEvents ? 'has-events' : ''}`}>
+      <div key={day.day} className="itinerary-day">
         <div className="day-header">
           <span className="day-badge">
             {day.day}일차
           </span>
           <span className="day-date">{day.date}</span>
-          {hasEvents && (
-            <span className="event-indicator">
-              <Sparkles className="event-icon" />
-              <span className="event-count">{dayEvents.length}개 이벤트</span>
-            </span>
-          )}
         </div>
         
         <div className="day-schedule">
@@ -44,50 +29,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
           </div>
         </div>
         
-        {/* 해당 날짜의 이벤트 정보 표시 */}
-        {hasEvents && (
-          <div className="day-events">
-            <h4 className="events-title">🎊 오늘의 이벤트</h4>
-            <div className="events-list">
-              {dayEvents.map((event, eventIndex) => (
-                <div key={eventIndex} className="day-event-item">
-                  <div className="event-header">
-                    <h5 className="event-name">{event.name}</h5>
-                    <span className="event-type-badge">{event.type}</span>
-                  </div>
-                  <p className="event-description">{event.description}</p>
-                  <div className="event-meta">
-                    <span className="event-location">
-                      <MapPin className="meta-icon" />
-                      {event.location}
-                    </span>
-                    {event.ticket_info && (
-                      <span className="event-ticket">
-                        💳 {event.ticket_info}
-                      </span>
-                    )}
-                  </div>
-                  {event.website && (
-                    <a
-                      href={event.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="event-website-link"
-                    >
-                      <ExternalLink className="link-icon" />
-                      공식 웹사이트
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
         
-        <div className="schedule-item accommodation">
-          <h4 className="schedule-title accommodation">🏨 숙박</h4>
-          <p className="schedule-content accommodation">{day.accommodation}</p>
-        </div>
       </div>
     );
   };
@@ -101,42 +43,14 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
       총 비용: ${tripPlan.total_cost}
 
       일정:
-      ${tripPlan.itinerary.map(day => {
-        const dayEvents = getEventsForDate(day.date);
-        const eventsInfo = dayEvents.length > 0 ? 
-          `\n      이벤트: ${dayEvents.map(e => `${e.name} (${e.type})`).join(', ')}` : '';
-        
-        return `
-      ${day.day}일차 (${day.date})
-      오전: ${day.morning}
-      오후: ${day.afternoon}
-      저녁: ${day.evening}
-      숙박: ${day.accommodation}${eventsInfo}
-      `;
-      }).join('')}
-
-      ${tripPlan.events && tripPlan.events.length > 0 ? `
-      축제/행사 정보:
-      ${tripPlan.events.map(event => `
-      ${event.name} (${event.type})
-      날짜: ${event.date}
-      장소: ${event.location}
-      설명: ${event.description}
-      ${event.ticket_info ? `티켓: ${event.ticket_info}` : ''}
-      ${event.website ? `웹사이트: ${event.website}` : ''}
+      ${tripPlan.itinerary.map(day => `
+             ${day.day}일차 (${day.date})
+       오전: ${day.morning}
+       오후: ${day.afternoon}
+       저녁: ${day.evening}
       `).join('')}
-      ` : ''}
 
-      숙박 정보:
-      ${tripPlan.accommodation.map(acc => `
-      ${acc.name} (${acc.type})
-      가격대: ${acc.price_range}
-      설명: ${acc.description}
-      ${acc.rating ? `평점: ${acc.rating}/5` : ''}
-      ${acc.amenities ? `편의시설: ${acc.amenities.join(', ')}` : ''}
-      예약 사이트:
-      ${Object.values(acc.booking_links).map(link => `- ${link.name}: ${link.url}`).join('\n')}
-      `).join('')}
+      
 
       여행 팁:
       ${tripPlan.tips.map(tip => `• ${tip}`).join('\n')}
@@ -221,13 +135,6 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
             <span className="overview-label">예상 비용</span>
             <p className="overview-value">{tripPlan.total_cost}</p>
           </div>
-          {tripPlan.events && tripPlan.events.length > 0 && (
-            <div className="overview-item orange">
-              <Sparkles className="overview-icon orange" />
-              <span className="overview-label">발견된 이벤트</span>
-              <p className="overview-value">{tripPlan.events.length}개</p>
-            </div>
-          )}
         </div>
       </div>
 
@@ -235,7 +142,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
       <div className="itinerary-card">
         <h2 className="itinerary-title">📅 상세 일정</h2>
         <div className="itinerary-list">
-          {tripPlan.itinerary.map((day, index) => renderScheduleWithEvents(day))}
+          {tripPlan.itinerary.map((day, index) => renderSchedule(day))}
         </div>
       </div>
 
@@ -285,149 +192,42 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): JSX.Eleme
         </div>
       )}
 
-      {/* 축제/행사 정보 요약 */}
-      {tripPlan.events && tripPlan.events.length > 0 && (
-        <div className="events-summary-card">
-          <h2 className="events-title">🎊 전체 축제/행사 요약</h2>
-          <div className="events-summary-grid">
-            {tripPlan.events.map((event, index) => (
-              <div key={index} className="event-summary-item">
-                <div className="event-summary-header">
-                  <h3 className="event-title">{event.name}</h3>
-                  <span className="event-type">
-                    {event.type}
-                  </span>
-                </div>
-                
-                {/* 날짜와 위치 정보 */}
-                <div className="event-summary-meta">
-                  <span className="meta-badge blue">
-                    <Calendar />
-                    {event.date}
-                  </span>
-                  <span className="meta-badge green">
-                    <MapPin />
-                    {event.location}
-                  </span>
-                </div>
-                
-                <p className="event-description">{event.description}</p>
-                
-                {/* 티켓 정보 */}
-                {event.ticket_info && (
-                  <div className="mb-4">
-                    <span className="meta-badge orange">
-                      💳 {event.ticket_info}
-                    </span>
-                  </div>
-                )}
-                
-                {/* 웹사이트 링크 */}
-                {event.website && (
-                  <div className="event-website">
-                    <a
-                      href={event.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="website-button"
-                    >
-                      <ExternalLink />
-                      공식 웹사이트 방문
-                    </a>
-                  </div>
-                )}
+      {/* 전체 여행 호텔 검색 링크 */}
+      {tripPlan.trip_hotel_search && (
+        <div className="trip-hotel-search-card">
+          <h2 className="trip-hotel-search-title">🏨 호텔 검색 및 예약</h2>
+          <div className="trip-hotel-search-info">
+            
+            <div className="search-links-section">
+              <h3 className="search-links-title">호텔 예약 사이트에서 검색하기</h3>
+              <p className="search-links-description">
+                아래 링크를 클릭하면 입력하신 여행 정보로 각 사이트에서 호텔을 검색할 수 있습니다.
+              </p>
+              <div className="search-links-grid">
+                {Object.entries(tripPlan.trip_hotel_search.search_links).map(([siteKey, siteInfo]) => (
+                  <a
+                    key={siteKey}
+                    href={siteInfo.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="search-link-card"
+                    title={`${siteInfo.name}에서 ${tripPlan.trip_hotel_search?.destination} 호텔 검색하기`}
+                  >
+                    <div className="search-link-icon">{siteInfo.icon}</div>
+                    <div className="search-link-content">
+                      <h4 className="search-link-name">{siteInfo.name}</h4>
+                      <p className="search-link-description">{siteInfo.description}</p>
+                    </div>
+                    <ExternalLink className="search-link-arrow" />
+                  </a>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* 숙박 정보 */}
-      <div className="accommodation-card">
-        <h2 className="accommodation-title">🏨 추천 숙박</h2>
-        <div className="grid-1">
-          {tripPlan.accommodation.map((acc, index) => (
-            <div key={index} className="accommodation-item">
-              <div className="accommodation-header">
-                <div className="flex-1">
-                  <h3 className="accommodation-name">{acc.name}</h3>
-                  <div className="flex-start gap-4 mb-3">
-                    <span className="accommodation-type">{acc.type}</span>
-                    <span className="price-badge">
-                      {acc.price_range}
-                    </span>
-                    {acc.rating && (
-                      <div className="rating">
-                        <Star />
-                        <span className="rating-text">{acc.rating}</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* 위치 정보 */}
-                  {acc.location && (
-                    <div className="accommodation-location">
-                      <span className="location-badge">
-                        <MapPin />
-                        {acc.location}
-                      </span>
-                    </div>
-                  )}
-                  
-                  <p className="accommodation-description">{acc.description}</p>
-                  
-                  {/* 편의시설 */}
-                  {acc.amenities && acc.amenities.length > 0 && (
-                    <div className="amenities-section">
-                      <h4 className="amenities-title">편의시설</h4>
-                      <div className="amenities-list">
-                        {acc.amenities.map((amenity, idx) => (
-                          <span key={idx} className="amenity-badge">
-                            {amenity === '무료 WiFi' && <Wifi />}
-                            {amenity === '주차' && <Car />}
-                            {amenity === '조식' && <Coffee />}
-                            {amenity === '수영장' && <span>🏊</span>}
-                            {amenity === '스파' && <span>💆</span>}
-                            {amenity === '피트니스' && <span>💪</span>}
-                            {amenity === '골프장' && <span>⛳</span>}
-                            {amenity === '레스토랑' && <span>🍽️</span>}
-                            {amenity === '주방' && <span>🍳</span>}
-                            {amenity === '바베큐' && <span>🔥</span>}
-                            {amenity === '세탁기' && <span>🧺</span>}
-                            {amenity === '미슐랭 레스토랑' && <span>⭐</span>}
-                            {amenity}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {/* 예약 링크 */}
-              <div className="booking-section">
-                <h4 className="booking-title">예약 사이트</h4>
-                <div className="booking-grid">
-                  {Object.entries(acc.booking_links).map(([key, link]) => (
-                    <a
-                      key={key}
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="booking-link"
-                      title={`${link.name}에서 ${acc.name} 예약하기`}
-                    >
-                      <span className="booking-icon">{link.icon}</span>
-                      <span className="booking-name">{link.name}</span>
-                      <ExternalLink />
-                    </a>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      
 
       {/* 여행 팁 */}
       <div className="tips-card">
