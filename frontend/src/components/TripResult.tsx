@@ -148,7 +148,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX
       <div className="itinerary-card">
         <h2 className="itinerary-title">📅 상세 일정</h2>
         <div className="itinerary-list">
-          {tripPlan.itinerary.map((day, index) => renderSchedule(day))}
+          {tripPlan.itinerary.map((day) => renderSchedule(day))}
         </div>
       </div>
 

@@ -759,7 +759,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # 로컬 개발용
-        "https://planner-backend-3bcz.onrender.com",  # Render 프론트엔드
+        "https://planner-kq3e.onrender.com",  # Render 프론트엔드
         "https://trip-planner-frontend.vercel.app",   # Vercel 프론트엔드 (대안)
     ],
     allow_credentials=True,  # 쿠키 등 인증 정보 허용

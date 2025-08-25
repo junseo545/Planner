@@ -13,7 +13,6 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -44,7 +43,6 @@ lerna-debug.log*
 
 # React 빌드 파일
 frontend/build/
-frontend/dist/
 
 # Vite 관련
 frontend/.vite/
