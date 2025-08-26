@@ -21,39 +21,9 @@ import re  # 정규표현식을 위한 라이브러리
 
 load_dotenv()
 
-# 네이버 API 인증키
-
-
 # 네이버 API 인증
 CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
-
-# 1. 장소 검색 (예: 부산 자갈치시장)
-def search_place(query):
-    url = "https://openapi.naver.com/v1/search/local.json"
-    headers = {
-        "X-Naver-Client-Id": CLIENT_ID,
-        "X-Naver-Client-Secret": CLIENT_SECRET
-    }
-    params = {"query": query, "display": 1}
-    res = requests.get(url, headers=headers, params=params)
-    return res.json()
-
-# 2. 길찾기 (예: 부산역 -> 자갈치시장)
-def get_directions(start, goal):
-    url = f"https://naveropenapi.apigw.ntruss.com/map-direction/v1/driving"
-    headers = {
-        "X-NCP-APIGW-API-KEY-ID": CLIENT_ID,
-        "X-NCP-APIGW-API-KEY": CLIENT_SECRET
-    }
-    params = {
-        "start": start,   # "127.1054328,37.3595963"
-        "goal": goal,     # "129.075986,35.179470"
-        "option": "trafast"  # 최적경로
-    }
-    res = requests.get(url, headers=headers, params=params)
-    return res.json()
-
 
 # ========================================
 # 네이버 API 검색 서비스 클래스
@@ -62,8 +32,8 @@ class NaverSearchService:
     """네이버 API를 활용한 검색 서비스"""
     
     def __init__(self):
-        self.client_id = client_id
-        self.client_secret = client_secret
+        self.client_id = CLIENT_ID
+        self.client_secret = CLIENT_SECRET
         self.headers = {
             "X-Naver-Client-Id": self.client_id,
             "X-Naver-Client-Secret": self.client_secret
@@ -648,99 +618,6 @@ if not openai_api_key:
     logger.error("OPENAI_API_KEY가 설정되지 않았습니다!")
     raise ValueError("OPENAI_API_KEY 환경 변수를 설정해주세요.")
 
-# # 검색 쿼리 설정
-# query = "부산 축제"
-# headers = {
-#     "X-Naver-Client-Id": client_id,
-#     "X-Naver-Client-Secret": client_secret
-# }
-
-# # 관련성 점수 계산 함수
-# def calculate_relevance(item):
-#     score = 0
-#     title = item.get('title', '').lower()
-#     description = item.get('description', '').lower()
-    
-#     # 관련 키워드 점수화
-#     keywords = ['축제', '부산', '2025', '8월', '해수욕장', '불꽃', '바다']
-#     for keyword in keywords:
-#         if keyword in title:
-#             score += 2
-#         if keyword in description:
-#             score += 1
-    
-#     # 관련 없는 키워드 감점
-#     irrelevant_keywords = ['자동차', '모터쇼', '현대', 'bmw', '지프', '혼다']
-#     for keyword in irrelevant_keywords:
-#         if keyword in title or keyword in description:
-#             score -= 3
-    
-#     return score
-
-# # 검색 결과 수집 및 정렬
-# def search_naver(query, search_type, display=3, sort="sim"):
-#     url = f"https://openapi.naver.com/v1/search/{search_type}.json?query={query}&display={display}&sort={sort}"
-#     try:
-#         res = requests.get(url, headers=headers).json()
-#         if 'items' not in res:
-#             logger.warning(f"{search_type} 검색 결과가 비어 있습니다.")
-#             return []
-#         return res['items']
-#     except Exception as e:
-#         logger.error(f"{search_type} 검색 중 오류 발생: {str(e)}")
-#         return []
-
-# # 모든 검색 결과 통합 및 순위 매기기
-# def get_top_relevant_results():
-#     # 뉴스, 블로그, 웹문서 검색
-#     news_results = search_naver(query, "news")
-#     blog_results = search_naver(query, "blog")
-#     web_results = search_naver(query, "webkr")
-    
-#     # 모든 결과를 하나로 합치기
-#     all_results = []
-#     for item in news_results:
-#         all_results.append({
-#             'type': 'news',
-#             'title': item['title'],
-#             'link': item['link'],
-#             'pubDate': item.get('pubDate', ''),
-#             'description': item.get('description', '')
-#         })
-#     for item in blog_results:
-#         all_results.append({
-#             'type': 'blog',
-#             'title': item['title'],
-#             'link': item['link'],
-#             'pubDate': item.get('postdate', ''),
-#             'description': item.get('description', '')
-#         })
-#     for item in web_results:
-#         all_results.append({
-#             'type': 'web',
-#             'title': item['title'],
-#             'link': item['link'],
-#             'pubDate': '',
-#             'description': item.get('description', '')
-#         })
-    
-#     # 관련성 점수로 정렬
-#     ranked_results = sorted(all_results, key=calculate_relevance, reverse=True)
-#     return ranked_results[:3]  # 상위 3개만 반환
-
-# # 메인 실행
-# if __name__ == "__main__":
-#     logger.info("부산 축제 2025년 8월 검색 시작")
-#     top_results = get_top_relevant_results()
-    
-#     print("\n=== 부산 축제 2025년 8월 관련 상위 3개 결과 ===")
-#     for i, result in enumerate(top_results, 1):
-#         print(f"{i}. [{result['type'].upper()}] {result['title']}")
-#         print(f"링크: {result['link']}")
-#         print(f"게시일: {result['pubDate']}")
-#         print(f"설명: {result['description']}")
-#         print("-" * 40)
-
 # OpenAI 클라이언트를 초기화합니다 (최신 버전 호환)
 client = openai.OpenAI(api_key=openai_api_key)
 
@@ -1284,9 +1161,9 @@ class HotelSearchService:
         
         # 각 예약 사이트별 검색 링크를 생성합니다
         links = {
-            "trip_dot_com": {
-                "name": "트립닷컴",
-                "url": f"https://kr.trip.com/hotels/list?searchWord={encoded_destination}&checkin={check_in_formatted}&checkout={check_out_formatted}&adult={guests}&children=0&locale=ko-KR&curr=KRW",
+            "hotels": {
+                "name": "호텔스닷컴",
+                "url": f"https://kr.hotels.com/Hotel-Search?destination={encoded_destination}&flexibility=0_DAY&d1={check_in}&startDate={check_in}&d2={check_out}&endDate={check_out}&adults={guests}&rooms={rooms}",
                 "icon": "🏨"
             },
             "airbnb": {
@@ -1308,7 +1185,7 @@ class HotelSearchService:
         
         # 특정 호텔명이 있는 경우 더 구체적인 검색 링크를 생성합니다
         if hotel_name:
-            links["trip_dot_com"]["url"] = f"https://kr.trip.com/hotels/list?searchWord={encoded_destination}&hotelName={encoded_hotel_name}&checkin={check_in_formatted}&checkout={check_out_formatted}&adult={guests}&children=0&locale=ko-KR&curr=KRW"
+            links["hotels"]["url"] = f"https://kr.hotels.com/Hotel-Search?destination={encoded_destination}&flexibility=0_DAY&d1={check_in}&startDate={check_in}&d2={check_out}&endDate={check_out}&adults={guests}&rooms={rooms}&q={encoded_hotel_name}"
             links["agoda"]["url"] = f"https://www.agoda.com/ko-kr/search?textToSearch={encoded_destination}&hotelName={encoded_hotel_name}&checkIn={check_in}&checkOut={check_out}&rooms={rooms}&adults={guests}&children=0&locale=ko-kr&currency=KRW&travellerType=1"
             links["booking"]["url"] = f"https://www.booking.com/searchresults.html?ss={encoded_destination}&hotelName={encoded_hotel_name}&checkin={check_in}&checkout={check_out}&group_adults={guests}&no_rooms={rooms}"
         
@@ -1319,11 +1196,11 @@ class HotelSearchService:
         """전체 여행에 대한 호텔 검색 링크를 생성하는 메서드"""
         # 주요 호텔 예약 사이트들의 검색 링크 생성
         search_links = {
-            "trip_dot_com": {
-                "name": "트립닷컴",
-                "url": f"https://kr.trip.com/hotels/list?searchWord={urllib.parse.quote(destination)}&checkin={check_in}&checkout={check_out}&adult={guests}&children=0&crn={rooms}&locale=ko-KR&curr=KRW",
+            "hotels": {
+                "name": "호텔스닷컴",
+                "url": f"https://kr.hotels.com/Hotel-Search?destination={urllib.parse.quote(destination)}&flexibility=0_DAY&d1={check_in}&startDate={check_in}&d2={check_out}&endDate={check_out}&adults={guests}&rooms={rooms}",
                 "icon": "🏨",
-                "description": "트립닷컴에서 호텔 검색하기"
+                "description": "호텔스닷컴에서 호텔 검색하기"
             },
             "yeogi": {
                 "name": "여기어때",
