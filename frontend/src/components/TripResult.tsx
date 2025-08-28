@@ -109,7 +109,11 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
     try {
       setChatHistory(prev => [...prev, { type: 'assistant', message: '요청을 처리중입니다...' }]);
       
-      const response = await fetch('http://localhost:8000/modify-trip-chat', {
+      const apiUrl = import.meta.env.PROD 
+        ? 'https://planner-backend-3bcz.onrender.com/modify-trip-chat'
+        : 'http://localhost:8000/modify-trip-chat';
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
