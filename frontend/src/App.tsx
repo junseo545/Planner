@@ -16,6 +16,10 @@ const App: React.FC = (): React.JSX.Element => {
     setTripPlan(null);
   };
 
+  const handleTripUpdated = (updatedPlan: TripPlan): void => {
+    setTripPlan(updatedPlan);
+  };
+
   return (
     <div className="App">
       <Header />
@@ -30,6 +34,7 @@ const App: React.FC = (): React.JSX.Element => {
           <TripResult 
             tripPlan={tripPlan}
             onReset={handleReset}
+            onTripUpdated={handleTripUpdated}
           />
         )}
       </main>

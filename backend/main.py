@@ -661,6 +661,12 @@ class TripRequest(BaseModel):
     companionType: Optional[str] = ""  # 동반자 유형 (연인, 친구, 가족 등)
     rooms: Optional[int] = 1   # 객실 수 (선택사항, 기본값: 1개)
     travelStyle: Optional[str] = ""  # 여행 스타일
+    travelPace: Optional[str] = ""  # 여행 페이스 (타이트하게, 널널하게)
+
+class ChatModifyRequest(BaseModel):
+    """채팅을 통한 일정 수정 요청 데이터 모델"""
+    message: str  # 사용자가 입력한 수정 요청 메시지
+    current_trip_plan: dict  # 현재 여행 계획 전체 데이터
 
 class HotelInfo(BaseModel):
     """호텔 정보를 담는 데이터 모델"""
@@ -682,6 +688,90 @@ class TripPlan(BaseModel):
     tips: List[str]  # 여행 팁 리스트
     transport_info: Optional[dict] = None  # 대중교통 정보
     trip_hotel_search: Optional[dict] = None  # 전체 여행에 대한 호텔 검색 링크
+
+
+# ========================================
+# 여행 비용 계산 함수
+# ========================================
+
+def calculate_trip_cost(budget: str, travel_days: int, destination: str) -> int:
+    """예산 등급과 여행 일수에 따른 1인당 예상 비용을 계산합니다"""
+    
+    # 디버깅을 위한 로그
+    print(f"비용 계산 - 예산: {budget}, 여행일수: {travel_days}, 목적지: {destination}")
+    
+    # 기본 일일 비용 (숙박 + 식사 + 교통 + 관광)
+    budget_multipliers = {
+        "저예산": 0.7,    # 70% 수준
+        "보통": 1.0,      # 100% 기준
+        "고급": 1.8,      # 180% 수준
+        "럭셔리": 3.0     # 300% 수준
+    }
+    
+    # 지역별 기본 비용 조정 (서울 기준 1.0)
+    region_multipliers = {
+        # 수도권
+        "서울": 1.2, "인천": 1.0, "경기": 1.0,
+        # 제주도 (관광지 프리미엄)
+        "제주": 1.4,
+        # 부산/대구 등 광역시
+        "부산": 1.1, "대구": 0.9, "광주": 0.9, "대전": 0.9, "울산": 0.9,
+        # 강원도 (관광지)
+        "강원": 1.1, "춘천": 1.1, "강릉": 1.2, "속초": 1.2, "평창": 1.1,
+        # 경상도
+        "경주": 1.0, "안동": 0.8, "포항": 0.9, "창원": 0.9, "진주": 0.8,
+        # 전라도
+        "전주": 0.9, "여수": 1.1, "순천": 0.8, "목포": 0.8,
+        # 충청도
+        "충주": 0.8, "천안": 0.9, "청주": 0.8, "공주": 0.8,
+        # 기타
+        "통영": 1.0, "거제": 1.0
+    }
+    
+    # 기본 일일 비용 (1인 기준) - 국내 여행 현실적 비용
+    base_daily_cost = {
+        "숙박": 50000,    # 평균 숙박비 (모텔/펜션 기준)
+        "식사": 30000,    # 3끼 식사비 (아침 5천, 점심 12천, 저녁 13천)
+        "교통": 15000,    # 지역 내 교통비 (버스/지하철/택시)
+        "관광": 20000,    # 입장료, 체험비 등
+        "기타": 10000     # 쇼핑, 간식 등
+    }
+    
+    # 총 기본 일일 비용
+    total_daily_cost = sum(base_daily_cost.values())  # 125,000원
+    
+    # 예산 등급별 비용 조정
+    budget_adjusted_cost = total_daily_cost * budget_multipliers.get(budget, 1.0)
+    
+    # 지역별 비용 조정
+    region_multiplier = 1.0
+    destination_lower = destination.lower()
+    for region, multiplier in region_multipliers.items():
+        if region in destination_lower:
+            region_multiplier = multiplier
+            break
+    
+    # 최종 일일 비용
+    final_daily_cost = budget_adjusted_cost * region_multiplier
+    
+    # 여행 일수에 따른 할인 (장기 여행 시 일부 비용 절약)
+    if travel_days >= 7:
+        day_discount = 0.9  # 10% 할인
+    elif travel_days >= 4:
+        day_discount = 0.95  # 5% 할인
+    else:
+        day_discount = 1.0  # 할인 없음
+    
+    # 최종 1인당 총 비용 계산
+    total_cost = final_daily_cost * travel_days * day_discount
+    
+    # 디버깅을 위한 로그
+    print(f"일일 기본비용: {total_daily_cost:,}원")
+    print(f"예산 조정후: {budget_adjusted_cost:,}원")
+    print(f"지역 조정후: {final_daily_cost:,}원")
+    print(f"최종 총비용: {total_cost:,}원")
+    
+    return int(total_cost)
 
 
 
@@ -971,174 +1061,6 @@ class EventService:
 class HotelSearchService:
     """호텔 검색 및 예약 링크 생성 서비스"""
     
-    @staticmethod #인스턴스를 통해서 호출했습니다 이번에는 인스턴스를 통하지 않고 클래스에서 바로 호출할 수 있는 정적 메서드
-    def get_popular_hotels(destination: str) -> List[dict]:
-        """목적지별 인기 호텔 정보를 제공하는 메서드"""
-        # 실제 인기 호텔 데이터베이스 (더 많은 호텔을 추가할 수 있습니다)
-        hotels_db = {
-            "여수": [
-                {
-                    "name": "마린호텔 여수",
-                    "type": "호텔",
-                    "price_range": "보통",
-                    "rating": 4.2,
-                    "amenities": ["무료 WiFi", "주차", "조식", "바다 전망"],
-                    "location": "여수시",
-                    "description": "여수 바다를 바라보는 전망 좋은 호텔로, 여수 해상케이블카와 가깝습니다."
-                },
-                {
-                    "name": "여수 오션뷰 펜션",
-                    "type": "펜션",
-                    "price_range": "저예산",
-                    "rating": 4.0,
-                    "amenities": ["무료 WiFi", "주방", "바베큐", "바다 전망"],
-                    "location": "여수시",
-                    "description": "여수 해안가에 위치한 아늑한 펜션으로 바다 전망을 감상할 수 있습니다."
-                },
-                {
-                    "name": "여수 그랜드 호텔",
-                    "type": "비즈니스 호텔",
-                    "price_range": "보통",
-                    "rating": 4.1,
-                    "amenities": ["무료 WiFi", "주차", "조식", "피트니스"],
-                    "location": "여수시",
-                    "description": "여수 시내 중심가에 위치하여 교통이 편리하고 쇼핑하기 좋습니다."
-                }
-            ],
-            "제주도": [
-                {
-                    "name": "제주 신라호텔",
-                    "type": "리조트",
-                    "price_range": "고급",
-                    "rating": 4.8,
-                    "amenities": ["무료 WiFi", "주차", "조식", "수영장", "골프장"],
-                    "location": "서귀포시",
-                    "description": "제주 남쪽에 위치한 럭셔리 리조트로 한라산과 바다 전망을 즐길 수 있습니다."
-                },
-                {
-                    "name": "제주 그랜드 호텔",
-                    "type": "호텔",
-                    "price_range": "보통",
-                    "rating": 4.3,
-                    "amenities": ["무료 WiFi", "주차", "조식"],
-                    "location": "제주시",
-                    "description": "제주 시내 중심가에 위치하여 쇼핑과 관광에 편리합니다."
-                },
-                {
-                    "name": "제주 오션뷰 펜션",
-                    "type": "펜션",
-                    "price_range": "저예산",
-                    "rating": 4.1,
-                    "amenities": ["무료 WiFi", "주방", "바베큐"],
-                    "location": "애월읍",
-                    "description": "애월 해안가에 위치하여 아름다운 바다 전망을 감상할 수 있습니다."
-                }
-            ],
-            "부산": [
-                {
-                    "name": "부산 파크 하얏트 호텔",
-                    "type": "럭셔리 호텔",
-                    "price_range": "럭셔리",
-                    "rating": 4.9,
-                    "amenities": ["무료 WiFi", "주차", "조식", "수영장", "스파", "피트니스"],
-                    "location": "해운대구",
-                    "description": "해운대 해변과 인접한 5성급 럭셔리 호텔입니다."
-                },
-                {
-                    "name": "부산 노보텔 앰배서더",
-                    "type": "비즈니스 호텔",
-                    "price_range": "보통",
-                    "rating": 4.2,
-                    "amenities": ["무료 WiFi", "주차", "조식", "피트니스"],
-                    "location": "중구",
-                    "description": "부산 시내 중심가에 위치하여 교통이 편리합니다."
-                },
-                {
-                    "name": "부산 게스트하우스",
-                    "type": "게스트하우스",
-                    "price_range": "저예산",
-                    "rating": 4.0,
-                    "amenities": ["무료 WiFi", "공용 주방"],
-                    "location": "서구",
-                    "description": "가성비 좋은 게스트하우스로 여행자들에게 인기가 많습니다."
-                }
-            ],
-            "도쿄": [
-                {
-                    "name": "도쿄 리츠칼튼 호텔",
-                    "type": "럭셔리 호텔",
-                    "price_range": "럭셔리",
-                    "rating": 4.9,
-                    "amenities": ["무료 WiFi", "수영장", "스파", "피트니스", "레스토랑"],
-                    "location": "미나토구",
-                    "description": "도쿄 타워와 가까운 럭셔리 호텔로 도쿄 전경을 감상할 수 있습니다."
-                },
-                {
-                    "name": "도쿄 신주쿠 프린스 호텔",
-                    "type": "비즈니스 호텔",
-                    "price_range": "보통",
-                    "rating": 4.3,
-                    "amenities": ["무료 WiFi", "피트니스", "레스토랑"],
-                    "location": "신주쿠구",
-                    "description": "신주쿠 역과 인접하여 교통이 매우 편리합니다."
-                },
-                {
-                    "name": "도쿄 카피탈 호텔",
-                    "type": "경제형 호텔",
-                    "price_range": "저예산",
-                    "rating": 4.0,
-                    "amenities": ["무료 WiFi", "세탁기"],
-                    "location": "시부야구",
-                    "description": "시부야 중심가에 위치한 깔끔한 경제형 호텔입니다."
-                }
-            ],
-            "파리": [
-                {
-                    "name": "파리 리츠 호텔",
-                    "type": "럭셔리 호텔",
-                    "price_range": "럭셔리",
-                    "rating": 4.9,
-                    "amenities": ["무료 WiFi", "수영장", "스파", "피트니스", "미슐랭 레스토랑"],
-                    "location": "1구",
-                    "description": "루브르 박물관과 가까운 역사적인 럭셔리 호텔입니다."
-                },
-                {
-                    "name": "파리 노보텔 투어 에펠",
-                    "type": "비즈니스 호텔",
-                    "price_range": "보통",
-                    "rating": 4.2,
-                    "amenities": ["무료 WiFi", "피트니스", "레스토랑"],
-                    "location": "7구",
-                    "description": "에펠탑 근처에 위치하여 파리의 상징적인 랜드마크를 감상할 수 있습니다."
-                },
-                {
-                    "name": "파리 게스트하우스",
-                    "type": "게스트하우스",
-                    "price_range": "저예산",
-                    "rating": 4.1,
-                    "amenities": ["무료 WiFi", "공용 주방"],
-                    "location": "18구",
-                    "description": "몽마르트 언덕 근처의 아늑한 게스트하우스입니다."
-                }
-            ]
-        }
-        
-        # 기본 호텔 정보 (목적지에 해당하는 호텔이 없는 경우 사용)
-        default_hotels = [
-            {
-                "name": "추천 호텔",
-                "type": "호텔",
-                "price_range": "보통",
-                "rating": 4.0,
-                "amenities": ["무료 WiFi", "주차"],
-                "location": "시내",
-                "description": "편리한 위치의 추천 호텔입니다."
-            }
-        ]
-        
-        # 목적지에 맞는 호텔을 반환하고, 없으면 기본 호텔을 반환합니다
-        return hotels_db.get(destination, default_hotels)
-    
     @staticmethod
     def create_booking_links(destination: str, check_in: str, check_out: str, guests: int, rooms: int, hotel_name: str = "") -> dict:
         """각 호텔 예약 사이트의 검색 링크를 생성하는 메서드"""
@@ -1311,8 +1233,13 @@ async def plan_trip(request: TripRequest):
         예산: {request.budget}
         관심사: {', '.join(request.interests) if request.interests else '일반적인 관광'}
         투숙객: {request.guests}명, 객실: {request.rooms}개
+        여행 페이스: {request.travelPace if request.travelPace else '보통'}
         
         다음 형식으로 JSON 응답을 제공해주세요:
+        
+        여행 페이스별 활동 개수 가이드:
+        - 타이트하게: 하루에 4-6개 활동 (빠른 이동, 다양한 체험)
+        - 널널하게: 하루에 2-3개 활동 (여유로운 일정, 충분한 휴식)
         {{
             "destination": "목적지명",
             "duration": "여행 기간",
@@ -1320,25 +1247,15 @@ async def plan_trip(request: TripRequest):
                 {{
                     "day": 1,
                     "date": "{request.start_date}",
-                    "morning": "오전 활동 (구체적인 관광지명 포함, 예: 해운대해수욕장, 자갈치시장, 여수해양공원 등)",
-                    "afternoon": "오후 활동 (구체적인 관광지명 포함, 예: 광안리해수욕장, 돌산공원, 만장굴 등)",
-                    "evening": "저녁 활동 (구체적인 장소명 포함, 예: 남포동, 센텀시티, 여수엑스포역 등)",
-                    "accommodation": "숙박지 (구체적인 지역명 포함)"
-                }},
-                {{
-                    "day": 2,
-                    "date": "{start_date + timedelta(days=1) if travel_days > 1 else request.start_date}",
-                    "morning": "오전 활동 (구체적인 관광지명 포함)",
-                    "afternoon": "오후 활동 (구체적인 관광지명 포함)",
-                    "evening": "저녁 활동 (구체적인 장소명 포함)",
-                    "accommodation": "숙박지 (구체적인 지역명 포함)"
-                }},
-                {{
-                    "day": 3,
-                    "date": "{start_date + timedelta(days=2) if travel_days > 2 else request.start_date}",
-                    "morning": "오전 활동 (구체적인 관광지명 포함)",
-                    "afternoon": "오후 활동 (구체적인 관광지명 포함)",
-                    "evening": "저녁 활동 (구체적인 장소명 포함)",
+                    "activities": [
+                        {{
+                            "time": "09:00",
+                            "title": "활동명",
+                            "location": "구체적인 장소명",
+                            "description": "활동 설명",
+                            "duration": "소요시간"
+                        }}
+                    ],
                     "accommodation": "숙박지 (구체적인 지역명 포함)"
                 }}
             ],
@@ -1353,16 +1270,19 @@ async def plan_trip(request: TripRequest):
                     "location": "구체적인 위치 (구/군 단위)"
                 }}
             ],
-            "total_cost": "총 예상 비용",
+            "total_cost": "1인당 예상 비용",
             "tips": ["여행 팁1", "여행 팁2", "여행 팁3"]
         }}
         
         중요사항:
         1. accommodation의 name 필드에는 실제 존재하는 호텔명을 사용해주세요. 가상의 호텔명(예: "호텔 A", "추천 호텔")은 사용하지 마세요.
         2. itinerary 배열에는 여행 기간에 맞는 모든 일차를 포함해주세요. {travel_days}일 여행이면 {travel_days}개의 일차가 있어야 합니다.
-        3. 각 일차마다 오전, 오후, 저녁 활동을 구체적으로 작성해주세요. 특히 관광지명은 구체적으로 작성해주세요 (예: "해운대해수욕장", "자갈치시장", "여수해양공원", "돌산공원" 등).
-        4. accommodation는 여행 기간에 맞게 적절한 수량을 추천해주세요.
-        5. 각 활동은 구체적인 장소명을 포함하여 작성해주세요. 이는 호텔 검색과 대중교통 정보 제공을 위해 중요합니다.
+        3. activities 배열에는 여행 페이스에 따라 다른 수의 활동을 포함해주세요:
+           - "타이트하게": 하루에 4-6개 활동 (시간별로 세밀하게 계획된 일정)
+           - "널널하게": 하루에 2-3개 활동 (각 활동에 충분한 시간 할애)
+        4. 각 activity에는 정확한 시간(time), 제목(title), 위치(location), 설명(description), 소요시간(duration)을 포함해주세요.
+        5. time은 24시간 형식(예: "09:00", "14:30")으로 작성하고, 여행 페이스에 따라 활동 간격을 조절해주세요.
+        6. total_cost는 반드시 "1인당 XXX,XXX원" 형식으로 작성해주세요. 예산별 가이드: 저예산(1일 8-10만원), 보통(1일 12-15만원), 고급(1일 20-25만원), 럭셔리(1일 35-50만원). 예시: "1인당 375,000원"
         """
         
         logger.info("OpenAI API 호출 시작...")
@@ -1416,14 +1336,7 @@ async def plan_trip(request: TripRequest):
                 )
                 trip_data["trip_hotel_search"] = trip_hotel_search
                 
-                # 대중교통 정보를 추가합니다
-                transport_service = PublicTransportService()
-                transport_info = transport_service.get_itinerary_transport_info(
-                    request.destination, 
-                    trip_data.get("itinerary", [])
-                )
-                if "error" not in transport_info:
-                    trip_data["transport_info"] = transport_info
+                # 대중교통 정보는 제거됨
                 
                 # TripPlan 모델로 변환하여 반환합니다
                 return TripPlan(**trip_data)
@@ -1459,16 +1372,40 @@ async def plan_trip(request: TripRequest):
                 )
                 accommodation_list.append(hotel_info)
             
-            # 여행 기간에 맞는 일정을 생성합니다
+            # 여행 기간에 맞는 일정을 생성합니다 (새로운 activities 구조)
             itinerary_list = []
             for day in range(1, travel_days + 1):
                 current_date = start_date + timedelta(days=day - 1)
+                
+                # 여행 페이스에 따른 활동 수 결정
+                if request.travelPace == "타이트하게":
+                    activities = [
+                        {"time": "09:00", "title": f"{day}일차 오전 관광", "location": f"{request.destination} 주요 관광지", "description": "주요 관광지 방문", "duration": "2시간"},
+                        {"time": "11:30", "title": f"현지 명소 탐방", "location": f"{request.destination} 명소", "description": "현지 문화 체험", "duration": "1.5시간"},
+                        {"time": "14:00", "title": f"점심 및 휴식", "location": f"{request.destination} 맛집", "description": "현지 음식 체험", "duration": "1시간"},
+                        {"time": "16:00", "title": f"오후 활동", "location": f"{request.destination} 체험장소", "description": "액티비티 참여", "duration": "2시간"},
+                        {"time": "19:00", "title": f"저녁 식사", "location": f"{request.destination} 음식점", "description": "저녁 식사 및 휴식", "duration": "1.5시간"}
+                    ]
+                else:  # 널널하게
+                    activities = [
+                        {"time": "10:00", "title": f"{day}일차 여유로운 관광", "location": f"{request.destination} 대표 관광지", "description": "천천히 둘러보며 여유있게 관광", "duration": "3시간"},
+                        {"time": "15:00", "title": f"현지 체험 및 휴식", "location": f"{request.destination} 체험장소", "description": "현지 문화를 깊이 있게 체험하고 충분한 휴식", "duration": "2.5시간"}
+                    ]
+                    
+                    # 랜덤하게 3개째 활동 추가 (50% 확률)
+                    if day % 2 == 1:  # 홀수 날에만 3개째 활동 추가
+                        activities.append({
+                            "time": "19:00", 
+                            "title": f"저녁 식사 및 산책", 
+                            "location": f"{request.destination} 맛집", 
+                            "description": "현지 음식을 즐기며 여유로운 저녁", 
+                            "duration": "1.5시간"
+                        })
+                
                 itinerary_list.append({
                     "day": day,
                     "date": current_date.strftime("%Y-%m-%d"),
-                    "morning": f"{day}일차 오전 활동",
-                    "afternoon": f"{day}일차 오후 활동",
-                    "evening": f"{day}일차 저녁 활동",
+                    "activities": activities,
                     "accommodation": f"{request.destination} 추천 호텔"
                 })
             
@@ -1481,30 +1418,23 @@ async def plan_trip(request: TripRequest):
                 request.rooms
             )
             
-            # 대중교통 정보를 추가합니다
-            transport_service = PublicTransportService()
-            transport_info = transport_service.get_itinerary_transport_info(
-                request.destination, 
-                itinerary_list
-            )
+            # 대중교통 정보는 제거됨
             
-            # 여행 기간 계산
+            # 여행 기간 계산 (실제 여행 일수)
             start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
             end_date = datetime.strptime(request.end_date, "%Y-%m-%d")
-            travel_days = (end_date - start_date).days
+            travel_days = (end_date - start_date).days + 1  # 실제 여행 일수 (2박3일 = 3일)
             
-            # 1인당 예상 비용 계산 (간단한 추정)
-            base_cost_per_day = 150000  # 1일 15만원 기준
-            estimated_cost_per_person = base_cost_per_day * travel_days
+            # 1인당 예상 비용 계산 (예산 등급별 세부 계산)
+            estimated_cost_per_person = calculate_trip_cost(request.budget, travel_days, request.destination)
             
             return TripPlan(
                 destination=request.destination,
                 duration=f"{request.start_date} ~ {request.end_date}",
                 itinerary=itinerary_list,
                 accommodation=accommodation_list,
-                total_cost=f"1인당 약 {estimated_cost_per_person:,}원",
-                tips=["여행 전 날씨 확인", "필수품 준비", "현지 교통 정보 파악"],
-                transport_info=transport_info if "error" not in transport_info else None,
+                total_cost=f"1인당 {estimated_cost_per_person:,}원",
+                tips=["여행 전 날짜 확인", "필수품 준비", "현지 교통 정보 파악"],
                 trip_hotel_search=trip_hotel_search
             )
             
@@ -2141,3 +2071,91 @@ class PublicTransportService:
         except Exception as e:
             logger.error(f"장소명 추출 중 오류: {e}")
             return None
+
+# ========================================
+# 채팅을 통한 일정 수정 API 엔드포인트
+# ========================================
+
+@app.post("/modify-trip-chat")
+async def modify_trip_chat(request: ChatModifyRequest):
+    """채팅을 통해 여행 일정을 수정하는 API"""
+    try:
+        logger.info(f"채팅 수정 요청: {request.message}")
+        
+        # OpenAI API를 사용하여 수정 요청 처리
+        client = openai.OpenAI(api_key=openai_api_key)
+        
+        # 현재 일정 데이터를 문자열로 변환
+        current_plan_str = json.dumps(request.current_trip_plan, ensure_ascii=False, indent=2)
+        
+        # GPT에게 수정 요청을 처리하도록 하는 프롬프트
+        modify_prompt = f"""
+다음은 현재 여행 계획입니다:
+
+{current_plan_str}
+
+사용자의 수정 요청: "{request.message}"
+
+위 수정 요청에 따라 여행 계획을 수정해주세요. 다음 규칙을 따라주세요:
+
+1. 수정이 필요한 부분만 변경하고, 나머지는 원래 데이터를 유지
+2. 일정 형식은 기존과 동일하게 유지
+3. "N일차" 형태로 특정 일차 수정을 요청하면 해당 일차만 수정
+4. 새로운 장소 추가 요청시 기존 일정과 어울리도록 배치
+5. 비용 정보도 적절히 조정
+6. 응답은 반드시 수정된 전체 JSON 데이터만 반환 (설명 없이)
+
+JSON 형식으로만 응답해주세요.
+"""
+
+        try:
+            completion = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "당신은 여행 계획 수정 전문가입니다. 사용자의 요청에 따라 여행 계획을 정확하게 수정해주세요."},
+                    {"role": "user", "content": modify_prompt}
+                ],
+                max_tokens=3000,
+                temperature=0.7
+            )
+            
+            response_content = completion.choices[0].message.content.strip()
+            
+            # JSON 파싱 시도
+            try:
+                # 코드 블록 제거 (```json으로 시작하는 경우)
+                if response_content.startswith('```'):
+                    response_content = response_content.split('```')[1]
+                    if response_content.startswith('json'):
+                        response_content = response_content[4:]
+                
+                modified_plan = json.loads(response_content)
+                
+                return {
+                    "success": True,
+                    "modified_plan": modified_plan,
+                    "message": "일정이 성공적으로 수정되었습니다."
+                }
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 오류: {e}")
+                # JSON 파싱 실패시 부분적 수정만 수행
+                return {
+                    "success": False,
+                    "message": f"죄송합니다. '{request.message}' 요청을 처리하는 중에 오류가 발생했습니다. 좀 더 구체적으로 요청해주세요.",
+                    "suggestion": "예: '2일차 오후 일정을 맛집 투어로 바꿔줘' 또는 '부산 해운대 일정 추가해줘'"
+                }
+                
+        except Exception as openai_error:
+            logger.error(f"OpenAI API 오류: {openai_error}")
+            return {
+                "success": False,
+                "message": "일정 수정 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+            }
+            
+    except Exception as e:
+        logger.error(f"채팅 수정 처리 중 오류: {e}")
+        return {
+            "success": False,
+            "message": "요청 처리 중 오류가 발생했습니다."
+        }

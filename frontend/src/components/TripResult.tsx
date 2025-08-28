@@ -1,8 +1,11 @@
-import React from 'react';
-import { ArrowLeft, ExternalLink, Download, Share2, MapPin, Calendar, DollarSign } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowLeft, ExternalLink, Download, Share2, MapPin, Calendar, DollarSign, ChevronUp, MessageCircle, Send } from 'lucide-react';
 import { TripResultProps } from '../types';
 
-const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX.Element => {
+const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdated }): React.JSX.Element => {
+  const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
+  const [chatMessage, setChatMessage] = useState('');
+  const [chatHistory, setChatHistory] = useState<Array<{type: 'user' | 'assistant', message: string}>>([]);
   // duration에서 "(3일)" 같은 텍스트를 제거하는 함수
   const formatDuration = (duration: string): string => {
     // "(3일)" 같은 패턴을 제거
@@ -20,22 +23,22 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX
           <span className="day-date">{day.date}</span>
         </div>
         
-        <div className="day-schedule">
-          <div className="schedule-item morning">
-            <h4 className="schedule-title morning">🌅 오전</h4>
-            <p className="schedule-content morning">{day.morning}</p>
-          </div>
-          <div className="schedule-item afternoon">
-            <h4 className="schedule-title afternoon">☀️ 오후</h4>
-            <p className="schedule-content afternoon">{day.afternoon}</p>
-          </div>
-          <div className="schedule-item evening">
-            <h4 className="schedule-title evening">🌙 저녁</h4>
-            <p className="schedule-content evening">{day.evening}</p>
-          </div>
+        <div className="day-activities">
+          {day.activities && day.activities.map((activity: any, index: number) => (
+            <div key={index} className="activity-item">
+              <div className="activity-number">
+                <span className="number-badge">{index + 1}</span>
+              </div>
+              <div className="activity-content">
+                <h4 className="activity-title">{activity.title}</h4>
+                <p className="activity-location">📍 {activity.location}</p>
+                <p className="activity-description">{activity.description}</p>
+              </div>
+            </div>
+          ))}
         </div>
         
-        
+
       </div>
     );
   };
@@ -51,9 +54,11 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX
       일정:
       ${tripPlan.itinerary.map(day => `
       ${day.day}일차 (${day.date})
-      오전: ${day.morning}
-      오후: ${day.afternoon}
-      저녁: ${day.evening}
+      ${day.activities?.map(activity => `
+      ${activity.time} - ${activity.title}
+      📍 ${activity.location}
+      ${activity.description} (${activity.duration})
+      `).join('') || '일정 정보 없음'}
       `).join('')}
 
       
@@ -89,6 +94,81 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX
       const text = `${tripPlan.destination} 여행 계획: ${window.location.href}`;
       navigator.clipboard.writeText(text);
       alert('링크가 클립보드에 복사되었습니다!');
+    }
+  };
+
+  const handleChatSubmit = async (): Promise<void> => {
+    if (!chatMessage.trim()) return;
+
+    // 사용자 메시지 추가
+    const userMessage = chatMessage.trim();
+    setChatHistory(prev => [...prev, { type: 'user', message: userMessage }]);
+    setChatMessage('');
+
+    // 백엔드에 실제 수정 요청을 보냅니다
+    try {
+      setChatHistory(prev => [...prev, { type: 'assistant', message: '요청을 처리중입니다...' }]);
+      
+      const response = await fetch('http://localhost:8000/modify-trip-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          current_trip_plan: tripPlan
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success && result.modified_plan) {
+        // 수정된 계획으로 업데이트
+        setChatHistory(prev => {
+          // 마지막 "처리중" 메시지 제거하고 성공 메시지 추가
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = { 
+            type: 'assistant', 
+            message: result.message 
+          };
+          return newHistory;
+        });
+        
+        // 상위 컴포넌트로 수정된 계획 전달
+        if (onTripUpdated) {
+          onTripUpdated(result.modified_plan);
+        }
+        
+      } else {
+        setChatHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = { 
+            type: 'assistant', 
+            message: result.message || '요청 처리 중 오류가 발생했습니다.' 
+          };
+          if (result.suggestion) {
+            newHistory.push({ type: 'assistant', message: result.suggestion });
+          }
+          return newHistory;
+        });
+      }
+    } catch (error) {
+      console.error('채팅 요청 오류:', error);
+      setChatHistory(prev => {
+        const newHistory = [...prev];
+        newHistory[newHistory.length - 1] = { 
+          type: 'assistant', 
+          message: '네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' 
+        };
+        return newHistory;
+      });
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleChatSubmit();
     }
   };
 
@@ -139,7 +219,9 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX
           <div className="overview-item purple">
             <DollarSign className="overview-icon purple" />
             <span className="overview-label">예상 비용</span>
-            <p className="overview-value">{tripPlan.total_cost}</p>
+            <p className="overview-value">
+              {tripPlan.total_cost.includes('1인당') ? tripPlan.total_cost : `1인당 ${tripPlan.total_cost}`}
+            </p>
           </div>
         </div>
       </div>
@@ -152,51 +234,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX
         </div>
       </div>
 
-      {/* 대중교통 정보 */}
-      {tripPlan.transport_info && (
-        <div className="transport-card">
-          <h2 className="transport-title">🚌 대중교통 정보</h2>
-          <div className="transport-list">
-            {Object.entries(tripPlan.transport_info.itinerary_transport || {}).map(([dayKey, dayTransport]) => {
-              const dayNumber = dayKey.replace('day_', '');
-              return (
-                <div key={dayKey} className="transport-day">
-                  <h3 className="transport-day-title">{dayNumber}일차 이동 정보</h3>
-                  <div className="transport-routes">
-                    {Array.isArray(dayTransport) && dayTransport.map((route, routeIndex) => (
-                      <div key={routeIndex} className="transport-route">
-                        <div className="route-header">
-                          <span className="route-time">{route.time}</span>
-                          <span className="route-direction">
-                            {route.from} → {route.to}
-                          </span>
-                        </div>
-                        {route.transport_info && route.transport_info.recommended_routes && (
-                          <div className="route-options">
-                            {route.transport_info.recommended_routes.map((option, optionIndex) => (
-                              <div key={optionIndex} className="route-option">
-                                <div className="option-header">
-                                  <span className="option-type">{option.route_type}</span>
-                                  {option.route && <span className="option-route">{option.route}</span>}
-                                </div>
-                                <p className="option-description">{option.description}</p>
-                                <div className="option-meta">
-                                  <span className="option-time">⏱️ {option.estimated_time}</span>
-                                  <span className="option-fare">💰 {option.fare}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+
 
       {/* 전체 여행 호텔 검색 링크 */}
       {tripPlan.trip_hotel_search && (
@@ -246,6 +284,50 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset }): React.JSX
             </div>
           ))}
         </div>
+      </div>
+
+      {/* 하단 접힌 패널 */}
+      <div className={`bottom-panel ${isBottomPanelOpen ? 'open' : ''}`}>
+        {/* 올리기 버튼 */}
+        <div className="panel-toggle" onClick={() => setIsBottomPanelOpen(!isBottomPanelOpen)}>
+          <ChevronUp className={`chevron-icon ${isBottomPanelOpen ? 'rotated' : ''}`} />
+          <span>{isBottomPanelOpen ? '접기' : '일정 수정'}</span>
+        </div>
+
+        {/* 패널 내용 */}
+        {isBottomPanelOpen && (
+          <div className="panel-content">
+            <div className="chat-tab">
+              <h3>일정 수정 요청</h3>
+              <div className="chat-messages">
+                {chatHistory.length === 0 ? (
+                  <div className="chat-placeholder">
+                    <p>예시: "2일차 다시 수정해줘", "부산 맛집 더 추가해줘"</p>
+                  </div>
+                ) : (
+                  chatHistory.map((msg, index) => (
+                    <div key={index} className={`chat-message ${msg.type}`}>
+                      {msg.message}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="chat-input-container">
+                <input
+                  type="text"
+                  value={chatMessage}
+                  onChange={(e) => setChatMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="일정 수정 요청을 입력하세요..."
+                  className="chat-input"
+                />
+                <button onClick={handleChatSubmit} className="chat-send-button">
+                  <Send size={18} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

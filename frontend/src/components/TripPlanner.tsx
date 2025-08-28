@@ -11,6 +11,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     guests: 2,
     companionType: '',
     travelStyle: '',
+    travelPace: '',
     budget: '보통',
     interests: [],
     rooms: 1,
@@ -33,6 +34,11 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   const travelStyleOptions = [
     '자연 관광', '문화 체험', '맛집 탐방', '쇼핑', '액티비티', '휴양', '역사 탐방'
+  ];
+
+  const travelPaceOptions = [
+    { value: '타이트하게', label: '타이트하게', description: '알차게 많은 곳을 둘러보고 싶어요' },
+    { value: '널널하게', label: '널널하게', description: '여유롭게 천천히 즐기고 싶어요' }
   ];
 
   // 자동완성 필터링 함수
@@ -64,9 +70,11 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   // 자동완성 선택 처리
   const handleSuggestionClick = (suggestion: string) => {
-    setFormData((prev: TripFormData) => ({ ...prev, customRegion: suggestion }));
+    setFormData((prev: TripFormData) => ({ ...prev, customRegion: suggestion, region: suggestion }));
     setInputValue(suggestion);
     setShowSuggestions(false);
+    // 지역 선택 후 자동으로 다음 단계로 이동
+    setCurrentStep(2);
   };
 
   // 외부 클릭 시 자동완성 닫기
@@ -83,15 +91,9 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     };
   }, []);
 
-  const handleCustomRegionInput = (): void => {
-    if (formData.customRegion.trim()) {
-      setFormData((prev: TripFormData) => ({
-        ...prev,
-        region: formData.customRegion
-      }));
-      setCurrentStep(2);
-    }
-  };
+
+
+
 
   const handleGuestsSelect = (): void => {
     if (formData.guests >= 2) {
@@ -116,6 +118,11 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     } else {
       alert('하나 이상의 여행 스타일을 선택해주세요.');
     }
+  };
+
+  const handleTravelPaceOptionClick = (pace: string): void => {
+    setFormData(prev => ({ ...prev, travelPace: pace }));
+    setCurrentStep(6);
   };
 
   const handleInterestToggle = (interest: string): void => {
@@ -144,6 +151,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
         guests: formData.guests,
         companionType: formData.companionType,
         travelStyle: formData.travelStyle,
+        travelPace: formData.travelPace,
         budget: formData.budget,
         interests: formData.interests,
         rooms: formData.rooms,
@@ -219,17 +227,9 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
               ))}
             </div>
           )}
-          <button
-            type="button"
-            onClick={handleCustomRegionInput}
-            disabled={!formData.customRegion.trim()}
-            className="region-input-button"
-          >
-            다음
-          </button>
         </div>
         <p className="region-input-hint">
-          도시명, 지역명, 또는 "강원도 속초" 같은 형태로 입력하세요
+          지역명을 입력하면 추천 목록이 나타납니다. 목록에서 선택하세요
         </p>
       </div>
     </div>
@@ -316,6 +316,25 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   const renderStep5 = (): JSX.Element => (
     <div className="step-container">
+      <h3 className="step-title">어떤 여행 페이스를 선호하시나요?</h3>
+      <div className="pace-options-grid">
+        {travelPaceOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => handleTravelPaceOptionClick(option.value)}
+            className={`pace-option ${formData.travelPace === option.value ? 'selected' : ''}`}
+          >
+            <span className="pace-title">{option.label}</span>
+            <span className="pace-description">{option.description}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderStep6 = (): JSX.Element => (
+    <div className="step-container">
       <h3 className="step-title">추가 정보를 입력해주세요</h3>
       
       <div className="additional-info-form">
@@ -357,7 +376,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
         <div className="form-section">
           <label className="form-label">
             <Calendar />
-            출발일
+            여행 시작일
           </label>
           <input
             type="date"
@@ -371,7 +390,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
         <div className="form-section">
           <label className="form-label">
             <Calendar />
-            도착일
+            여행 종료일
           </label>
           <input
             type="date"
@@ -416,7 +435,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
       {/* 진행 단계 표시 */}
       <div className="progress-bar">
-        {[1, 2, 3, 4, 5].map((step) => (
+        {[1, 2, 3, 4, 5, 6].map((step) => (
           <div
             key={step}
             className={`progress-step ${currentStep >= step ? 'active' : ''} ${currentStep === step ? 'current' : ''}`}
@@ -427,7 +446,8 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
               {step === 2 && '인원수'}
               {step === 3 && '동반자 유형'}
               {step === 4 && '여행 스타일'}
-              {step === 5 && '추가 정보'}
+              {step === 5 && '여행 페이스'}
+              {step === 6 && '추가 정보'}
             </span>
           </div>
         ))}
@@ -456,6 +476,11 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
                <strong>여행 스타일:</strong> {formData.interests.join(', ')}
              </div>
            )}
+           {currentStep >= 5 && formData.travelPace && (
+             <div className="summary-item">
+               <strong>여행 페이스:</strong> {formData.travelPace}
+             </div>
+           )}
         </div>
       )}
 
@@ -479,6 +504,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           {currentStep === 3 && renderStep3()}
           {currentStep === 4 && renderStep4()}
           {currentStep === 5 && renderStep5()}
+          {currentStep === 6 && renderStep6()}
         </form>
       </div>
     </div>

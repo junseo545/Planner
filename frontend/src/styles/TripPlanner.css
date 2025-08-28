@@ -803,3 +803,101 @@
     padding: 1.25rem 0.75rem;
   }
 }
+
+/* 여행 페이스 선택 */
+.pace-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.pace-option {
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 2rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.pace-option::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.pace-option:hover::before {
+  transform: scaleX(1);
+}
+
+.pace-option:hover {
+  border-color: #6366f1;
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(99, 102, 241, 0.15);
+}
+
+.pace-option.selected {
+  border-color: #6366f1;
+  background: linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(99, 102, 241, 0.2);
+}
+
+.pace-option.selected::before {
+  transform: scaleX(1);
+}
+
+.pace-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 0.5rem;
+}
+
+.pace-description {
+  font-size: 1rem;
+  color: #64748b;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.pace-option.selected .pace-title {
+  color: #6366f1;
+}
+
+.pace-option.selected .pace-description {
+  color: #475569;
+}
+
+@media (max-width: 768px) {
+  .pace-options-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .pace-option {
+    padding: 1.5rem;
+  }
+  
+  .pace-title {
+    font-size: 1.25rem;
+  }
+  
+  .pace-description {
+    font-size: 0.9rem;
+  }
+}

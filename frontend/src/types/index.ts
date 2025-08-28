@@ -21,38 +21,18 @@ export interface TripPlan {
   itinerary: Array<{
     day: number;
     date: string;
-    morning: string;
-    afternoon: string;
-    evening: string;
+    activities: Array<{
+      time: string;
+      title: string;
+      location: string;
+      description: string;
+      duration: string;
+    }>;
     accommodation: string;
   }>;
   accommodation: HotelInfo[];
   total_cost: string;
   tips: string[];
-  transport_info?: {
-    city: string;
-    itinerary_transport: {
-      [key: string]: Array<{
-        from: string;
-        to: string;
-        time: string;
-        transport_info: {
-          from: string;
-          to: string;
-          city: string;
-          recommended_routes: Array<{
-            route_type: string;
-            route?: string;
-            description: string;
-            estimated_time: string;
-            fare: string;
-          }>;
-          all_transport_options: any;
-        };
-      }>;
-    };
-    total_days: number;
-  };
   trip_hotel_search?: {
     destination: string;
     check_in: string;
@@ -77,6 +57,7 @@ export interface TripFormData {
   guests: number; // 인원수
   companionType: string; // 누구랑 가는지 (연인, 친구, 가족 등)
   travelStyle: string; // 여행 스타일
+  travelPace: string; // 여행 페이스 (타이트하게, 널널하게)
   budget: string; // 예산
   interests: string[]; // 관심사
   rooms: number; // 객실 수
@@ -95,4 +76,5 @@ export interface TripPlannerProps {
 export interface TripResultProps {
   tripPlan: TripPlan;
   onReset: () => void;
+  onTripUpdated?: (updatedPlan: TripPlan) => void;
 }
