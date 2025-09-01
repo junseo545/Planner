@@ -24,7 +24,23 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
         </div>
         
         <div className="day-activities">
-          {day.activities && day.activities.map((activity: any, index: number) => (
+          {day.activities && day.activities
+            .filter((activity: any) => {
+              // 호텔/숙박 관련 활동 필터링
+              const title = activity.title?.toLowerCase() || '';
+              const description = activity.description?.toLowerCase() || '';
+              const category = activity.place_category?.toLowerCase() || '';
+              
+              // 호텔, 숙박, 체크인, 체크아웃 등의 키워드가 포함된 활동 제외
+              const hotelKeywords = ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out', '펜션', '게스트하우스', '모텔'];
+              
+              return !hotelKeywords.some(keyword => 
+                title.includes(keyword) || 
+                description.includes(keyword) || 
+                category.includes(keyword)
+              );
+            })
+            .map((activity: any, index: number) => (
             <div key={index} className="activity-item">
               <div className="activity-number">
                 <span className="number-badge">{index + 1}</span>
@@ -63,14 +79,18 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
       일정:
       ${tripPlan.itinerary.map(day => `
       ${day.day}일차 (${day.date})
-      ${day.activities?.map(activity => `
+      ${day.activities?.filter(activity => {
+        // 호텔/숙박 관련 활동 필터링
+        const title = activity.title?.toLowerCase() || '';
+        const description = activity.description?.toLowerCase() || '';
+        const hotelKeywords = ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out', '펜션', '게스트하우스', '모텔'];
+        return !hotelKeywords.some(keyword => title.includes(keyword) || description.includes(keyword));
+      }).map(activity => `
       ${activity.time} - ${activity.title}
       📍 ${activity.location}
       ${activity.description} (${activity.duration})
       `).join('') || '일정 정보 없음'}
       `).join('')}
-
-      
 
       여행 팁:
       ${tripPlan.tips.map(tip => `• ${tip}`).join('\n')}
@@ -267,22 +287,22 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
                   <a
                     key={siteKey}
                     href={siteInfo.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="search-link-card"
-                    title={`${siteInfo.name}에서 ${tripPlan.trip_hotel_search?.destination} 호텔 검색하기`}
+                    title={`${siteInfo.name}에서 ${tripPlan.trip_hotel_search?.destination || tripPlan.destination} 호텔 검색하기`}
                   >
                     <div className="search-link-icon">{siteInfo.icon}</div>
                     <div className="search-link-content">
                       <h4 className="search-link-name">{siteInfo.name}</h4>
                       <p className="search-link-description">{siteInfo.description}</p>
-                  </div>
+                    </div>
                     <ExternalLink className="search-link-arrow" />
-                    </a>
-                  ))}
-                </div>
+                  </a>
+                ))}
               </div>
             </div>
+          </div>
         </div>
       )}
 

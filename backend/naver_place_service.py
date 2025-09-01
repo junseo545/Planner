@@ -41,7 +41,7 @@ class NaverPlaceService:
                 'query': search_query,
                 'display': display,
                 'start': 1,
-                'sort': 'random'  # 다양한 결과를 위해 랜덤 정렬
+                'sort': 'comment'  # 리뷰 많은 순으로 정렬 (더 신뢰할 만한 결과)
             }
             
             response = requests.get(self.search_url, headers=headers, params=params)
@@ -84,6 +84,9 @@ class NaverPlaceService:
         location = activity.get('location', '')
         title = activity.get('title', '')
         
+        # 현재 지역 정보를 클래스 변수로 저장 (주소 검증에서 사용)
+        self._current_region = region
+        
         # 장소명에서 키워드 추출
         search_keywords = [
             location,
@@ -92,34 +95,45 @@ class NaverPlaceService:
             self._extract_place_name_from_title(title)
         ]
         
-        for keyword in search_keywords:
+        logger.info(f"장소 검색 시작: title='{title}', location='{location}', region='{region}'")
+        
+        for i, keyword in enumerate(search_keywords):
             if keyword and len(keyword.strip()) > 1:
-                places = self.search_places(keyword, region, display=1)
+                logger.info(f"검색 키워드 {i+1}: '{keyword}'")
+                places = self.search_places(keyword, region, display=5)  # 더 많은 결과 가져오기
                 
                 if places:
-                    place = places[0]
+                    logger.info(f"'{keyword}' 검색 결과 {len(places)}개:")
+                    for j, place in enumerate(places):
+                        logger.info(f"  {j+1}. {place['name']} - {place['category']} - {place['address']}")
                     
-                    # 원본 activity 복사
-                    enhanced_activity = activity.copy()
+                    # 관련성이 높은 장소 찾기
+                    best_place = self._find_most_relevant_place(keyword, places)
                     
-                    # 실제 장소 정보 추가
-                    enhanced_activity.update({
-                        'real_place_name': place['name'],
-                        'real_address': place['address'],
-                        'place_category': place['category'],
-                        'place_telephone': place['telephone'],
-                        'place_link': place['link']
-                    })
-                    
-                    # 기존 location을 더 구체적으로 업데이트
-                    if place['address']:
-                        enhanced_activity['location'] = place['address']
-                    
-                    logger.info(f"실제 장소 정보 추가: {keyword} -> {place['name']} ({place['address']})")
-                    return enhanced_activity
+                    if best_place:
+                        # 원본 activity 복사
+                        enhanced_activity = activity.copy()
+                        
+                        # 실제 장소 정보 추가
+                        enhanced_activity.update({
+                            'real_place_name': best_place['name'],
+                            'real_address': best_place['address'],
+                            'place_category': best_place['category'],
+                            'place_telephone': best_place['telephone'],
+                            'place_link': best_place['link']
+                        })
+                        
+                        # 기존 location을 더 구체적으로 업데이트
+                        if best_place['address']:
+                            enhanced_activity['location'] = best_place['address']
+                        
+                        logger.info(f"실제 장소 정보 추가: {keyword} -> {best_place['name']} ({best_place['address']})")
+                        return enhanced_activity
+                else:
+                    logger.warning(f"'{keyword}' 검색 결과 없음")
         
-        # 실제 장소를 찾지 못한 경우 원본 반환
-        logger.warning(f"실제 장소 정보를 찾지 못함: {location}")
+        # 실제 장소를 찾지 못한 경우 원본 그대로 반환 (잘못된 정보 추가 방지)
+        logger.warning(f"신뢰할 만한 장소 정보를 찾지 못함: '{location}' - 부정확한 정보 추가를 방지하기 위해 원본 정보 유지")
         return activity
     
     def enhance_itinerary_with_real_places(self, itinerary: List[Dict], destination: str) -> List[Dict]:
@@ -146,6 +160,239 @@ class NaverPlaceService:
         """HTML 태그 제거"""
         import re
         return re.sub(r'<[^>]+>', '', text)
+    
+    def _find_most_relevant_place(self, keyword: str, places: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """검색 결과에서 가장 관련성이 높은 장소 찾기 (매우 엄격한 기준)"""
+        keyword_lower = keyword.lower().replace(' ', '')
+        
+        # 관련 없는 카테고리 필터링 (확장)
+        irrelevant_categories = [
+            '자동차정비', '수리', '썬팅', '광택', '주유소', '카센터', '타이어', 
+            '세차', '정비', '부품', '렌터카', '중고차', '자동차용품',
+            '부동산', '공인중개사', '아파트', '빌라', '원룸', '오피스텔',
+            '의료', '병원', '의원', '치과', '한의원', '약국', '한방',
+            '음식', '카페', '레스토랑', '식당', '술집', '호프', '치킨', '피자',
+            '쇼핑', '마트', '편의점', '슈퍼', '패션', '의류', '화장품',
+            '숙박', '모텔', '펜션', '게스트하우스', '호텔'
+        ]
+        
+        logger.info(f"장소 필터링 시작: 키워드='{keyword}', 총 {len(places)}개 결과")
+        
+        relevant_places = []
+        
+        for i, place in enumerate(places):
+            place_name = place['name'].lower().replace(' ', '')
+            place_category = place['category'].lower()
+            
+            logger.info(f"  {i+1}. 검토: {place['name']} | 카테고리: {place['category']}")
+            
+            # 1. 관련 없는 카테고리 제외
+            excluded = False
+            for irrelevant in irrelevant_categories:
+                if irrelevant in place_category:
+                    logger.warning(f"     → 카테고리 제외: '{irrelevant}' 포함")
+                    excluded = True
+                    break
+            
+            if excluded:
+                continue
+            
+            # 2. 정확한 장소명 검증 (매우 엄격)
+            exact_match_score = self._calculate_exact_match_score(keyword_lower, place_name)
+            
+            if exact_match_score < 0.7:  # 70% 이상 일치해야 함
+                logger.warning(f"     → 이름 일치도 미달: {exact_match_score:.2f} (최소 0.7 필요)")
+                continue
+            
+            # 3. 관련성 점수 계산
+            relevance_score = self._calculate_relevance_score(keyword_lower, place_name, place_category)
+            
+            if relevance_score > 0.7:  # 매우 엄격한 기준
+                # 4. 주소 행정구역 정확성 검증 (지역 정보 사용)
+                place_address = place.get('address', '')
+                # enhance_activity_with_real_place 함수의 region 파라미터 사용
+                target_region = getattr(self, '_current_region', '') or keyword
+                if not self._validate_address_accuracy(place_address, target_region):
+                    logger.warning(f"     → 주소 행정구역 오류: {place_address} (지역: {target_region})")
+                    continue
+                
+                place['relevance_score'] = relevance_score
+                place['exact_match_score'] = exact_match_score
+                relevant_places.append(place)
+                logger.info(f"     ✅ 통과: 관련성={relevance_score:.2f}, 정확도={exact_match_score:.2f}")
+            else:
+                logger.warning(f"     → 관련성 미달: {relevance_score:.2f} (최소 0.7 필요)")
+        
+        if relevant_places:
+            # 정확도와 관련성 모두 고려하여 정렬
+            relevant_places.sort(key=lambda x: (x['exact_match_score'], x['relevance_score']), reverse=True)
+            best_place = relevant_places[0]
+            logger.info(f"✅ 최종 선택: {best_place['name']} (정확도: {best_place['exact_match_score']:.2f}, 관련성: {best_place['relevance_score']:.2f})")
+            return best_place
+        
+        logger.error(f"❌ 조건을 만족하는 장소를 찾지 못함: '{keyword}' - 검색 결과가 부정확합니다")
+        return None
+    
+    def _calculate_relevance_score(self, keyword: str, place_name: str, place_category: str) -> float:
+        """키워드와 장소의 관련성 점수 계산"""
+        score = 0.0
+        keyword_normalized = keyword.replace(' ', '').lower()
+        place_normalized = place_name.replace(' ', '').lower()
+        
+        logger.debug(f"관련성 계산: '{keyword_normalized}' vs '{place_normalized}'")
+        
+        # 1. 정확한 이름 일치도 (가장 중요)
+        if keyword_normalized in place_normalized:
+            if keyword_normalized == place_normalized:
+                score += 1.0  # 완전 일치
+                logger.debug(f"완전 일치: +1.0")
+            elif place_normalized.startswith(keyword_normalized):
+                score += 0.9  # 시작 부분 일치
+                logger.debug(f"시작 일치: +0.9")
+            else:
+                # 키워드가 장소명에 포함되는 비율 계산
+                ratio = len(keyword_normalized) / len(place_normalized)
+                if ratio > 0.5:  # 키워드가 장소명의 50% 이상을 차지
+                    score += 0.7
+                    logger.debug(f"주요 부분 일치 ({ratio:.2f}): +0.7")
+                else:
+                    score += 0.4  # 일반 부분 일치
+                    logger.debug(f"부분 일치 ({ratio:.2f}): +0.4")
+        
+        # 2. 개별 단어 매칭 (더 엄격하게)
+        keyword_words = [w for w in keyword.split() if len(w) >= 2]
+        place_words = [w for w in place_name.split() if len(w) >= 2]
+        
+        matched_words = 0
+        for kw in keyword_words:
+            kw_norm = kw.lower()
+            for pw in place_words:
+                pw_norm = pw.lower()
+                if kw_norm == pw_norm:  # 정확한 단어 일치만
+                    matched_words += 1
+                    score += 0.3
+                    logger.debug(f"단어 일치 '{kw}': +0.3")
+                    break
+        
+        # 3. 카테고리 관련성
+        tourism_keywords = ['관광', '명소', '문화', '체험', '공원', '박물관', '미술관', '케이블카', '전망대', '해상']
+        if any(word in place_category for word in tourism_keywords):
+            score += 0.2
+            logger.debug(f"관광 카테고리: +0.2")
+        
+        # 4. 페널티: 관련 없는 키워드가 있으면 점수 감점
+        irrelevant_in_name = ['정비', '수리', '부동산', '병원', '의원']
+        for irrelevant in irrelevant_in_name:
+            if irrelevant in place_normalized:
+                score -= 0.5
+                logger.debug(f"관련없는 키워드 '{irrelevant}': -0.5")
+        
+        final_score = max(0.0, min(score, 1.0))  # 0.0 ~ 1.0 범위 제한
+        logger.debug(f"최종 점수: {final_score:.2f}")
+        return final_score
+    
+    def _calculate_exact_match_score(self, keyword: str, place_name: str) -> float:
+        """정확한 이름 매칭 점수 계산 (오타, 누락 문자 등 검증)"""
+        keyword_clean = keyword.replace(' ', '').lower()
+        place_clean = place_name.replace(' ', '').lower()
+        
+        # 1. 완전 일치
+        if keyword_clean == place_clean:
+            return 1.0
+        
+        # 2. 키워드가 장소명에 완전히 포함
+        if keyword_clean in place_clean:
+            # 포함 비율 계산
+            ratio = len(keyword_clean) / len(place_clean)
+            if ratio >= 0.8:  # 80% 이상 일치
+                return 0.95
+            elif ratio >= 0.6:  # 60% 이상 일치  
+                return 0.8
+            else:
+                return 0.6
+        
+        # 3. 개별 문자 레벤슈타인 거리 계산 (오타 검증)
+        def levenshtein_distance(s1: str, s2: str) -> int:
+            if len(s1) < len(s2):
+                return levenshtein_distance(s2, s1)
+            if len(s2) == 0:
+                return len(s1)
+            
+            previous_row = list(range(len(s2) + 1))
+            for i, c1 in enumerate(s1):
+                current_row = [i + 1]
+                for j, c2 in enumerate(s2):
+                    insertions = previous_row[j + 1] + 1
+                    deletions = current_row[j] + 1
+                    substitutions = previous_row[j] + (c1 != c2)
+                    current_row.append(min(insertions, deletions, substitutions))
+                previous_row = current_row
+            return previous_row[-1]
+        
+        distance = levenshtein_distance(keyword_clean, place_clean)
+        max_len = max(len(keyword_clean), len(place_clean))
+        
+        if max_len == 0:
+            return 0.0
+        
+        similarity = 1 - (distance / max_len)
+        
+        # 4. 핵심 단어 확인 (국립, 해양, 박물관 등)
+        important_words = ['국립', '해양', '박물관', '미술관', '과학관', '문화관', '전시관']
+        keyword_words = [w for w in keyword.split() if w in important_words]
+        place_words = [w for w in place_name.split() if w in important_words]
+        
+        if keyword_words:
+            # 중요한 단어가 모두 포함되어야 함
+            missing_important = [w for w in keyword_words if w not in place_name]
+            if missing_important:
+                logger.warning(f"중요 단어 누락: {missing_important}")
+                return 0.0  # 중요한 단어가 빠지면 0점
+        
+        return max(0.0, similarity)
+    
+    def _validate_address_accuracy(self, address: str, target_region: str) -> bool:
+        """주소의 행정구역 정확성 검증"""
+        if not address or not target_region:
+            return True
+        
+        # 주요 도시별 행정구역 정보
+        city_districts = {
+            '여수': ['여수시'],  # 여수는 일반시로 구가 없음
+            '순천': ['순천시'],  # 순천도 일반시
+            '목포': ['목포시'],  # 목포도 일반시
+            '부산': ['중구', '서구', '동구', '영도구', '부산진구', '동래구', '남구', '북구', '해운대구', '사하구', '금정구', '강서구', '연제구', '수영구', '사상구', '기장군'],
+            '서울': ['종로구', '중구', '용산구', '성동구', '광진구', '동대문구', '중랑구', '성북구', '강북구', '도봉구', '노원구', '은평구', '서대문구', '마포구', '양천구', '강서구', '구로구', '금천구', '영등포구', '동작구', '관악구', '서초구', '강남구', '송파구', '강동구'],
+            '대구': ['중구', '동구', '서구', '남구', '북구', '수성구', '달서구', '달성군'],
+            '인천': ['중구', '동구', '미추홀구', '연수구', '남동구', '부평구', '계양구', '서구', '강화군', '옹진군'],
+            '광주': ['동구', '서구', '남구', '북구', '광산구'],
+            '대전': ['동구', '중구', '서구', '유성구', '대덕구'],
+            '울산': ['중구', '남구', '동구', '북구', '울주군']
+        }
+        
+        # 목표 지역의 유효한 구/군 목록 가져오기
+        target_city = target_region.replace('시', '').replace('도', '')
+        valid_districts = city_districts.get(target_city, [])
+        
+        if not valid_districts:
+            return True  # 목록에 없는 지역은 검증 통과
+        
+        # 주소에서 구/군 추출
+        address_parts = address.split()
+        found_invalid = False
+        
+        for part in address_parts:
+            if '구' in part or '군' in part:
+                district = part.replace(' ', '')
+                # 유효한 구/군 목록에 있는지 확인
+                if district not in valid_districts:
+                    logger.error(f"❌ 잘못된 행정구역: '{target_city}'에는 '{district}'가 존재하지 않음")
+                    found_invalid = True
+                    break
+                else:
+                    logger.info(f"✅ 올바른 행정구역: '{district}' ('{target_city}'에 존재)")
+        
+        return not found_invalid
     
     def _extract_place_name_from_title(self, title: str) -> str:
         """제목에서 장소명 추출"""

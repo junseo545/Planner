@@ -1541,18 +1541,10 @@ async def plan_trip(request: TripRequest):
                 else:  # 널널하게
                     activities = [
                         {"time": "10:00", "title": f"{day}일차 여유로운 관광", "location": f"{request.destination} 대표 관광지", "description": "천천히 둘러보며 여유있게 관광", "duration": "3시간"},
-                        {"time": "15:00", "title": f"현지 체험 및 휴식", "location": f"{request.destination} 체험장소", "description": "현지 문화를 깊이 있게 체험하고 충분한 휴식", "duration": "2.5시간"}
+                        {"time": "14:00", "title": f"점심 및 현지 맛집 탐방", "location": f"{request.destination} 유명 맛집", "description": "현지 특색 음식을 여유롭게 즐기기", "duration": "1.5시간"},
+                        {"time": "16:30", "title": f"현지 체험 및 쇼핑", "location": f"{request.destination} 체험장소", "description": "현지 문화를 깊이 있게 체험하고 기념품 쇼핑", "duration": "2시간"},
+                        {"time": "19:30", "title": f"저녁 식사 및 산책", "location": f"{request.destination} 저녁 맛집", "description": "현지 음식을 즐기며 여유로운 저녁 산책", "duration": "2시간"}
                     ]
-                    
-                    # 랜덤하게 3개째 활동 추가 (50% 확률)
-                    if day % 2 == 1:  # 홀수 날에만 3개째 활동 추가
-                        activities.append({
-                            "time": "19:00", 
-                            "title": f"저녁 식사 및 산책", 
-                            "location": f"{request.destination} 맛집", 
-                            "description": "현지 음식을 즐기며 여유로운 저녁", 
-                            "duration": "1.5시간"
-                        })
                 
                 itinerary_list.append({
                     "day": day,
@@ -2248,6 +2240,8 @@ async def collect_location_feedback(feedback: LocationFeedback):
     except Exception as e:
         logger.error(f"피드백 수집 오류: {e}")
         return {"success": False, "message": "피드백 수집 중 오류가 발생했습니다."}
+
+
 
 # ========================================
 # 채팅을 통한 일정 수정 API 엔드포인트
