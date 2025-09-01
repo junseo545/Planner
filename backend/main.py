@@ -18,6 +18,9 @@ from datetime import datetime, timedelta  # 날짜와 시간 처리용
 import urllib.parse  # URL 인코딩용
 import requests  # HTTP 요청을 위한 라이브러리
 import re  # 정규표현식을 위한 라이브러리
+from location_validator import validate_trip_locations, PlaceValidationResult
+from naver_geocoding import NaverGeocodingService
+from naver_place_service import NaverPlaceService
 
 load_dotenv()
 
@@ -448,10 +451,15 @@ class NaverSearchService:
             destination_variants = self._get_destination_variants(destination)
             destination_score = 0
             
+            # 정확한 지역명 매칭을 위한 강화된 필터링
+            exact_location_match = False
+            other_location_penalty = 0
+            
             # 제목에서 목적지 확인
             for variant in destination_variants:
                 if variant in title:
                     destination_score += 8  # 제목에 목적지가 있으면 매우 높은 점수
+                    exact_location_match = True
                     break
             
             # 설명에서 목적지 확인
@@ -459,9 +467,22 @@ class NaverSearchService:
                 for variant in destination_variants:
                     if variant in description:
                         destination_score += 5  # 설명에 목적지가 있으면 높은 점수
+                        exact_location_match = True
                         break
             
-            score += destination_score
+            # 다른 강원도 지역명이 있는지 확인하여 점수 차감
+            if destination.lower() in ["강릉", "속초", "춘천", "평창", "원주", "동해", "태백", "삼척"]:
+                gangwon_cities = ["강릉", "속초", "춘천", "평창", "원주", "동해", "태백", "삼척"]
+                for city in gangwon_cities:
+                    if city != destination.lower() and city in title.lower():
+                        other_location_penalty = -10  # 다른 강원도 도시명이 있으면 큰 점수 차감
+                        logger.info(f"다른 강원도 도시 {city} 발견으로 점수 차감: {event['name']}")
+                        break
+                    elif city != destination.lower() and city in description.lower():
+                        other_location_penalty = -5  # 설명에 다른 도시명이 있으면 점수 차감
+                        break
+            
+            score += destination_score + other_location_penalty
             
             # 연도 일치
             if str(target_year) in title:
@@ -519,8 +540,11 @@ class NaverSearchService:
             
             event['relevance_score'] = score
         
+        # 점수가 0 이하인 이벤트 필터링 (관련성이 떨어지는 결과 제외)
+        filtered_events = [event for event in events if event['relevance_score'] > 0]
+        
         # 점수순으로 정렬
-        return sorted(events, key=lambda x: x['relevance_score'], reverse=True)
+        return sorted(filtered_events, key=lambda x: x['relevance_score'], reverse=True)
 
     def _get_destination_variants(self, destination: str) -> List[str]:
         """목적지의 다양한 변형(약칭, 별칭, 구/군 단위 등)을 반환"""
@@ -545,6 +569,15 @@ class NaverSearchService:
             "용인": ["용인", "용인시", "경기도용인시", "에버랜드", "기흥구"],
             "성남": ["성남", "성남시", "경기도성남시", "분당", "판교"],
             "부천": ["부천", "부천시", "경기도부천시", "상동", "중동"],
+            # 강원도 지역별 세부 매핑 추가 - 각 도시별로 독립적으로 검색되도록 설정
+            "강릉": ["강릉", "강릉시", "강원도강릉시", "강릉해변", "강릉시내", "경포대", "정동진"],
+            "속초": ["속초", "속초시", "강원도속초시", "속초해수욕장", "속초항", "설악산입구"],
+            "춘천": ["춘천", "춘천시", "강원도춘천시", "남이섬", "춘천호", "명동거리"],
+            "평창": ["평창", "평창군", "강원도평창군", "평창올림픽", "대관령", "용평리조트"],
+            "원주": ["원주", "원주시", "강원도원주시", "원주시내", "치악산"],
+            "동해": ["동해", "동해시", "강원도동해시", "동해항", "망상해수욕장"],
+            "태백": ["태백", "태백시", "강원도태백시", "태백산", "태백시내"],
+            "삼척": ["삼척", "삼척시", "강원도삼척시", "삼척해변", "환선굴", "용화해수욕장"],
             "안산": ["안산", "안산시", "경기도안산시", "단원구", "상록구"],
             "안양": ["안양", "안양시", "경기도안양시", "만안구", "동안구"],
             "평택": ["평택", "평택시", "경기도평택시", "평택항", "송탄"],
@@ -1235,6 +1268,18 @@ async def plan_trip(request: TripRequest):
         투숙객: {request.guests}명, 객실: {request.rooms}개
         여행 페이스: {request.travelPace if request.travelPace else '보통'}
         
+        ⚠️ **중요 지침: 실제 존재하는 장소만 추천해주세요**
+        - 모든 관광지, 음식점, 호텔명은 실제로 존재하는 장소여야 합니다
+        - 확실하지 않은 장소는 추천하지 마세요
+        - 유명하고 검증된 관광명소를 우선적으로 포함해주세요
+        - 호텔명은 체인호텔(롯데호텔, 신라호텔, 그랜드하얏트 등) 또는 널리 알려진 호텔만 사용해주세요
+        
+        ⚠️ **음식점 및 장소 추천 시 주의사항**
+        - 가상의 동네명이나 지역명을 만들지 마세요 (예: "하구마을", "중앙시장" 등)
+        - 음식점명은 구체적인 상호명 대신 "현지 유명 빈대떡집", "전통 한식당" 등으로 표현하세요
+        - 위치는 실제 도로명이나 동명을 사용하세요 (예: "여수시 중앙동", "여수 돌산대교 근처")
+        - 불확실한 정보보다는 일반적인 설명을 선호하세요
+        
         다음 형식으로 JSON 응답을 제공해주세요:
         
         여행 페이스별 활동 개수 가이드:
@@ -1336,7 +1381,114 @@ async def plan_trip(request: TripRequest):
                 )
                 trip_data["trip_hotel_search"] = trip_hotel_search
                 
-                # 대중교통 정보는 제거됨
+                # 위치 검증 수행 (선택적)
+                validation_enabled = os.getenv('ENABLE_LOCATION_VALIDATION', 'false').lower() == 'true'
+                if validation_enabled:
+                    try:
+                        validation_result = validate_trip_locations(
+                            trip_data.get("itinerary", []), 
+                            request.destination
+                        )
+                        
+                        # 검증 결과가 좋지 않은 경우 경고 로그
+                        if validation_result['invalid_places_count'] > 0:
+                            logger.warning(f"위치 검증 결과: {validation_result['invalid_places_count']}개의 장소를 찾을 수 없습니다")
+                            logger.warning(f"문제 장소들: {[p['location'] for p in validation_result['invalid_places']]}")
+                        
+                        # 검증 결과를 응답에 포함 (개발용)
+                        trip_data["location_validation"] = validation_result
+                        
+                    except Exception as e:
+                        logger.error(f"기존 위치 검증 중 오류: {e}")
+                
+                # 네이버 지오코딩을 사용한 위치 검증 (선택적)
+                geocoding_enabled = os.getenv('ENABLE_GEOCODING_VALIDATION', 'true').lower() == 'true'
+                
+                if geocoding_enabled:
+                    try:
+                        geocoding_service = NaverGeocodingService()
+                        
+                        # API 키가 있는지 확인
+                        if geocoding_service.client_id and geocoding_service.client_secret:
+                            logger.info(f"네이버 지오코딩으로 {request.destination} 지역 검증 시작")
+                        else:
+                            logger.info(f"네이버 API 키가 없어 텍스트 기반 검증 실행: {request.destination}")
+                        
+                        if trip_data.get('itinerary'):
+                            validated_itinerary = []
+                            total_activities = 0
+                            invalid_activities = 0
+                            
+                            for day in trip_data['itinerary']:
+                                if day.get('activities'):
+                                    activities = day['activities']
+                                    validation_result = geocoding_service.validate_activity_locations(
+                                        activities, request.destination
+                                    )
+                                    
+                                    total_activities += len(activities)
+                                    invalid_activities += len(validation_result['invalid_activities'])
+                                    
+                                    # 유효한 활동들만 사용하고, 유효하지 않은 활동은 필터링
+                                    valid_activities = validation_result['valid_activities']
+                                    
+                                    if validation_result['invalid_activities']:
+                                        logger.info(f"{day['day']}일차에서 {len(validation_result['invalid_activities'])}개의 부적절한 장소 발견")
+                                        
+                                        for invalid_activity in validation_result['invalid_activities']:
+                                            logger.info(f"지역 불일치 제거: {invalid_activity.get('location', 'Unknown')}")
+                                    
+                                    # 활동이 너무 적어지지 않도록 최소 1개는 유지
+                                    if len(valid_activities) == 0 and len(activities) > 0:
+                                        logger.warning(f"{day['day']}일차의 모든 활동이 제거되어 원본 유지")
+                                        day['activities'] = activities  # 원본 유지
+                                    else:
+                                        day['activities'] = valid_activities
+                                
+                                validated_itinerary.append(day)
+                            
+                            # 검증 통계 로그
+                            if invalid_activities > 0:
+                                logger.info(f"지오코딩 검증: 총 {total_activities}개 활동 중 {invalid_activities}개 부적절한 장소 처리")
+                            else:
+                                logger.info(f"지오코딩 검증: 모든 {total_activities}개 활동이 {request.destination} 지역에 적합합니다")
+                            
+                            # 검증된 일정으로 업데이트
+                            trip_data['itinerary'] = validated_itinerary
+                            
+                    except Exception as e:
+                        logger.error(f"네이버 지오코딩 검증 중 오류: {e}")
+                        # 검증 실패해도 여행 계획은 반환
+                else:
+                    logger.info("지오코딩 검증이 비활성화되어 있습니다.")
+                
+                # 실제 장소 정보 추가 (네이버 검색 API 활용)
+                place_enhancement_enabled = os.getenv('ENABLE_PLACE_ENHANCEMENT', 'true').lower() == 'true'
+                
+                if place_enhancement_enabled:
+                    try:
+                        place_service = NaverPlaceService()
+                        
+                        if place_service.search_client_id and place_service.search_client_secret:
+                            logger.info(f"네이버 검색 API로 실제 장소 정보 추가 시작: {request.destination}")
+                            
+                            # 일정에 실제 장소 정보 추가
+                            enhanced_itinerary = place_service.enhance_itinerary_with_real_places(
+                                trip_data.get('itinerary', []), 
+                                request.destination
+                            )
+                            
+                            trip_data['itinerary'] = enhanced_itinerary
+                            logger.info("실제 장소 정보 추가 완료")
+                            
+                        else:
+                            logger.info("네이버 검색 API 키가 없어 실제 장소 정보 추가를 건너뜁니다.")
+                            
+                    except Exception as e:
+                        logger.error(f"실제 장소 정보 추가 중 오류: {e}")
+                        # 오류가 발생해도 여행 계획은 반환
+                else:
+                    logger.info("실제 장소 정보 추가가 비활성화되어 있습니다.")
                 
                 # TripPlan 모델로 변환하여 반환합니다
                 return TripPlan(**trip_data)
@@ -2073,6 +2225,31 @@ class PublicTransportService:
             return None
 
 # ========================================
+# 위치 피드백 수집 API 엔드포인트
+# ========================================
+
+from pydantic import BaseModel
+
+class LocationFeedback(BaseModel):
+    location: str
+    feedback_type: str  # 'not-exist', 'wrong-info', etc.
+    destination: str
+
+@app.post("/location-feedback")
+async def collect_location_feedback(feedback: LocationFeedback):
+    """존재하지 않는 장소에 대한 사용자 피드백을 수집하는 API"""
+    try:
+        logger.warning(f"장소 오류 신고: {feedback.location} in {feedback.destination} - 타입: {feedback.feedback_type}")
+        
+        # 실제 구현에서는 데이터베이스에 저장하거나 관리자에게 알림을 보낼 수 있습니다
+        # 현재는 로그로만 기록합니다
+        
+        return {"success": True, "message": "피드백이 접수되었습니다."}
+    except Exception as e:
+        logger.error(f"피드백 수집 오류: {e}")
+        return {"success": False, "message": "피드백 수집 중 오류가 발생했습니다."}
+
+# ========================================
 # 채팅을 통한 일정 수정 API 엔드포인트
 # ========================================
 
@@ -2081,6 +2258,7 @@ async def modify_trip_chat(request: ChatModifyRequest):
     """채팅을 통해 여행 일정을 수정하는 API"""
     try:
         logger.info(f"채팅 수정 요청: {request.message}")
+        logger.info(f"현재 여행지: {request.current_trip_plan.get('destination', 'N/A')}")
         
         # OpenAI API를 사용하여 수정 요청 처리
         client = openai.OpenAI(api_key=openai_api_key)
@@ -2096,23 +2274,23 @@ async def modify_trip_chat(request: ChatModifyRequest):
 
 사용자의 수정 요청: "{request.message}"
 
-위 수정 요청에 따라 여행 계획을 수정해주세요. 다음 규칙을 따라주세요:
+위 수정 요청에 따라 여행 계획을 수정해주세요. 
 
-1. 수정이 필요한 부분만 변경하고, 나머지는 원래 데이터를 유지
-2. 일정 형식은 기존과 동일하게 유지
-3. "N일차" 형태로 특정 일차 수정을 요청하면 해당 일차만 수정
-4. 새로운 장소 추가 요청시 기존 일정과 어울리도록 배치
-5. 비용 정보도 적절히 조정
-6. 응답은 반드시 수정된 전체 JSON 데이터만 반환 (설명 없이)
+**수정 규칙:**
+1. 특정 일차의 활동을 바꾸라는 요청이면, 해당 일차(day)의 activities 배열에서 관련 활동을 찾아 새로운 활동으로 교체
+2. "3일차 해운대 마사지"를 다른 활동으로 바꾸라는 요청이면, 3일차 activities에서 "마사지"가 포함된 활동을 새로운 부산 관련 활동으로 교체
+3. 새 활동은 시간대, 장소, 설명을 현실적으로 설정
+4. 나머지 데이터(destination, duration, total_cost, tips 등)는 그대로 유지
+5. JSON 형식을 정확히 유지
 
-JSON 형식으로만 응답해주세요.
+**중요**: 코드 블록 없이 순수 JSON만 반환하세요.
 """
 
         try:
             completion = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "당신은 여행 계획 수정 전문가입니다. 사용자의 요청에 따라 여행 계획을 정확하게 수정해주세요."},
+                    {"role": "system", "content": "당신은 여행 계획 수정 전문가입니다. 사용자의 요청에 따라 여행 계획을 수정하고 완전한 JSON 데이터를 반환합니다. 코드 블록이나 설명 없이 순수 JSON만 출력하세요."},
                     {"role": "user", "content": modify_prompt}
                 ],
                 max_tokens=3000,
@@ -2120,16 +2298,41 @@ JSON 형식으로만 응답해주세요.
             )
             
             response_content = completion.choices[0].message.content.strip()
+            logger.info(f"OpenAI 응답 (처음 200자): {response_content[:200]}...")
             
-            # JSON 파싱 시도
+            # JSON 파싱 시도 (더 강력한 정리)
             try:
-                # 코드 블록 제거 (```json으로 시작하는 경우)
-                if response_content.startswith('```'):
-                    response_content = response_content.split('```')[1]
-                    if response_content.startswith('json'):
-                        response_content = response_content[4:]
+                # 다양한 형태의 코드 블록 제거
+                content = response_content.strip()
                 
-                modified_plan = json.loads(response_content)
+                # ```json이나 ``` 코드 블록 제거
+                if content.startswith('```'):
+                    lines = content.split('\n')
+                    # 첫 번째 ```가 있는 줄 제거
+                    if lines[0].strip() in ['```', '```json']:
+                        lines = lines[1:]
+                    # 마지막 ```가 있는 줄 제거
+                    if lines and lines[-1].strip() == '```':
+                        lines = lines[:-1]
+                    content = '\n'.join(lines)
+                
+                # 앞뒤 공백과 개행 제거
+                content = content.strip()
+                
+                # 추가 정리: 맨 앞뒤에 있는 불필요한 텍스트 제거
+                if content.startswith('"') and content.endswith('"'):
+                    content = content[1:-1]
+                
+                # 첫 번째 {부터 마지막 }까지만 추출
+                start_idx = content.find('{')
+                end_idx = content.rfind('}')
+                if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+                    content = content[start_idx:end_idx+1]
+                
+                logger.info(f"정리된 JSON (처음 200자): {content[:200]}...")
+                
+                # JSON 파싱
+                modified_plan = json.loads(content)
                 
                 return {
                     "success": True,
@@ -2139,11 +2342,14 @@ JSON 형식으로만 응답해주세요.
                 
             except json.JSONDecodeError as e:
                 logger.error(f"JSON 파싱 오류: {e}")
-                # JSON 파싱 실패시 부분적 수정만 수행
+                logger.error(f"원본 응답: {response_content}")
+                logger.error(f"정리된 내용: {content}")
+                
+                # JSON 파싱 실패시 더 상세한 안내 제공
                 return {
                     "success": False,
-                    "message": f"죄송합니다. '{request.message}' 요청을 처리하는 중에 오류가 발생했습니다. 좀 더 구체적으로 요청해주세요.",
-                    "suggestion": "예: '2일차 오후 일정을 맛집 투어로 바꿔줘' 또는 '부산 해운대 일정 추가해줘'"
+                    "message": f"'{request.message}' 요청을 처리하는 중에 시스템 오류가 발생했습니다. 다시 시도해주세요.",
+                    "suggestion": "다음과 같이 더 구체적으로 요청해주세요: '3일차 마사지를 해운대 해변 산책으로 바꿔줘', '2일차 오후 일정을 맛집 투어로 바꿔줘'"
                 }
                 
         except Exception as openai_error:

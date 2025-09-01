@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ExternalLink, Download, Share2, MapPin, Calendar, DollarSign, ChevronUp, MessageCircle, Send } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Download, Share2, MapPin, Calendar, DollarSign, ChevronUp, Send } from 'lucide-react';
 import { TripResultProps } from '../types';
 
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdated }): React.JSX.Element => {
@@ -31,8 +31,17 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
               </div>
               <div className="activity-content">
                 <h4 className="activity-title">{activity.title}</h4>
-                <p className="activity-location">📍 {activity.location}</p>
+                <div className="activity-location-info">
+                  <p className="activity-location">📍 {activity.real_address || activity.location}</p>
+                  {activity.place_category && (
+                    <p className="activity-category">{activity.place_category}</p>
+                  )}
+                  {activity.place_telephone && (
+                    <p className="activity-phone">📞 {activity.place_telephone}</p>
+                  )}
+                </div>
                 <p className="activity-description">{activity.description}</p>
+
               </div>
             </div>
           ))}
@@ -175,6 +184,8 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
       handleChatSubmit();
     }
   };
+
+
 
   return (
     <div className="result-container">

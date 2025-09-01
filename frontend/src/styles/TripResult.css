@@ -339,11 +339,34 @@
   line-height: 1.4;
 }
 
+.activity-location-info {
+  margin: 0.5rem 0;
+}
+
 .activity-location {
   font-size: 0.9rem;
   color: #059669;
   font-weight: 500;
+  margin: 0 0 0.25rem 0;
+}
+
+
+
+.activity-category {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin: 0 0 0.25rem 0;
+  background: #f3f4f6;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.375rem;
+  display: inline-block;
+}
+
+.activity-phone {
+  font-size: 0.8rem;
+  color: #4b5563;
   margin: 0;
+  font-weight: 400;
 }
 
 .activity-description {
@@ -1234,6 +1257,38 @@
     height: 50px;
     font-size: 1.5rem;
   }
+}
+
+/* 활동 피드백 버튼 */
+.activity-feedback {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.feedback-button {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.feedback-button:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.feedback-button:active {
+  transform: translateY(0);
 }
 
 /* 하단 패널 스타일 */
