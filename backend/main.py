@@ -634,6 +634,372 @@ class NaverSearchService:
         return list(set(variants))
 
 # ========================================
+# 카카오 로컬 API 서비스 클래스
+# ========================================
+class KakaoLocalService:
+    """카카오 로컬 API를 사용하여 장소 검색 및 검증을 수행하는 서비스"""
+    
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or kakao_api_key
+        self.base_url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+        
+    def search_place(self, query: str, region: str = None) -> dict:
+        """
+        카카오 로컬 API를 사용하여 장소를 검색합니다.
+        
+        Args:
+            query: 검색할 장소명
+            region: 지역 필터 (선택사항)
+            
+        Returns:
+            검색 결과 딕셔너리 (장소 정보 포함)
+        """
+        if not self.api_key:
+            logger.warning("카카오 API 키가 없어 장소 검색을 건너뜁니다.")
+            return None
+            
+        headers = {
+            "Authorization": f"KakaoAK {self.api_key}"
+        }
+        
+        params = {
+            "query": query,
+            "size": 5  # 최대 5개 결과만 가져오기
+        }
+        
+        # 지역이 지정된 경우 검색어에 포함
+        if region:
+            params["query"] = f"{region} {query}"
+            
+        try:
+            response = requests.get(self.base_url, headers=headers, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            documents = data.get('documents', [])
+            
+            if documents:
+                # 첫 번째 결과 반환 (가장 관련성 높은 결과)
+                place = documents[0]
+                return {
+                    'found': True,
+                    'name': place.get('place_name', ''),
+                    'address': place.get('address_name', ''),
+                    'road_address': place.get('road_address_name', ''),
+                    'category': place.get('category_name', ''),
+                    'phone': place.get('phone', ''),
+                    'x': place.get('x', ''),  # 경도
+                    'y': place.get('y', ''),  # 위도
+                    'url': place.get('place_url', '')
+                }
+            else:
+                logger.warning(f"카카오 API에서 '{query}' 장소를 찾을 수 없습니다.")
+                return {'found': False, 'query': query}
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"카카오 API 요청 실패: {str(e)}")
+            return {'found': False, 'error': str(e), 'query': query}
+            
+    def verify_and_enrich_location(self, activity: dict, region: str = None) -> dict:
+        """
+        활동 정보의 장소를 검증하고 정확한 정보로 보강합니다.
+        
+        Args:
+            activity: 활동 정보 딕셔너리
+            region: 지역명 (검색 정확도 향상용)
+            
+        Returns:
+            검증 및 보강된 활동 정보
+        """
+        title = activity.get('title', '')
+        location = activity.get('location', '')
+        
+        # 장소명으로 검색 시도
+        search_result = self.search_place(title, region)
+        
+        if not search_result or not search_result.get('found'):
+            # 제목으로 찾지 못하면 location으로 재시도
+            if location and location != title:
+                search_result = self.search_place(location, region)
+        
+        # 검증된 정보로 활동 정보 업데이트
+        if search_result and search_result.get('found'):
+            activity['verified'] = True
+            activity['real_address'] = search_result.get('road_address') or search_result.get('address')
+            activity['place_category'] = search_result.get('category')
+            activity['place_telephone'] = search_result.get('phone')
+            activity['coordinates'] = {
+                'lat': float(search_result.get('y', 0)) if search_result.get('y') else None,
+                'lng': float(search_result.get('x', 0)) if search_result.get('x') else None
+            }
+            
+            # 정확한 장소명으로 업데이트
+            if search_result.get('name'):
+                activity['verified_name'] = search_result.get('name')
+                
+            logger.info(f"장소 검증 성공: {title} -> {search_result.get('name')}")
+        else:
+            activity['verified'] = False
+            logger.warning(f"장소 검증 실패: {title}")
+            
+        return activity
+
+# ========================================
+# 여행 데이터 검증 및 보강 함수
+# ========================================
+async def verify_and_enrich_trip_data(trip_data: dict, kakao_service: KakaoLocalService, destination: str) -> dict:
+    """
+    여행 계획 데이터의 모든 장소를 카카오 API로 검증하고 보강합니다.
+    검증에 실패한 장소가 있으면 해당 활동만 다시 생성합니다.
+    """
+    if not trip_data.get("itinerary"):
+        return trip_data
+    
+    failed_activities = []
+    region = destination.split()[0]  # 지역명 추출 (예: "부산 해운대" -> "부산")
+    
+    # 각 일차별로 활동 검증
+    for day_idx, day in enumerate(trip_data["itinerary"]):
+        if not day.get("activities"):
+            continue
+            
+        for activity_idx, activity in enumerate(day["activities"]):
+            # 호텔/숙박 관련 활동은 검증하지 않음
+            title = activity.get('title', '').lower()
+            if any(keyword in title for keyword in ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out']):
+                continue
+            
+            # 카카오 API로 장소 검증 및 보강
+            verified_activity = kakao_service.verify_and_enrich_location(activity, region)
+            
+            # 검증 실패한 활동 기록
+            if not verified_activity.get('verified', False):
+                failed_activities.append({
+                    'day_idx': day_idx,
+                    'activity_idx': activity_idx,
+                    'day': day.get('day'),
+                    'original_activity': activity.copy()
+                })
+            
+            # 검증된 정보로 업데이트
+            day["activities"][activity_idx] = verified_activity
+    
+    # 검증 실패한 활동이 있으면 재생성
+    if failed_activities:
+        logger.info(f"검증 실패한 활동 {len(failed_activities)}개를 재생성합니다...")
+        trip_data = await regenerate_failed_activities(trip_data, failed_activities, destination)
+    
+    return trip_data
+
+async def regenerate_failed_activities(trip_data: dict, failed_activities: list, destination: str) -> dict:
+    """
+    검증에 실패한 활동들을 OpenAI로 다시 생성합니다.
+    """
+    for failed in failed_activities:
+        day_idx = failed['day_idx']
+        activity_idx = failed['activity_idx']
+        day_num = failed['day']
+        original = failed['original_activity']
+        
+        try:
+            # 해당 일차의 다른 활동들 정보 수집
+            day_activities = trip_data["itinerary"][day_idx]["activities"]
+            other_activities = [act for i, act in enumerate(day_activities) if i != activity_idx]
+            
+            # 재생성 프롬프트
+            regeneration_prompt = f"""
+다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 실제 존재하는 장소로 대체해주세요.
+
+현재 {day_num}일차 다른 활동들:
+{json.dumps(other_activities, ensure_ascii=False, indent=2)}
+
+요구사항:
+1. {destination} 지역에 실제로 존재하는 관광지/맛집/체험활동으로 대체
+2. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
+3. 다른 활동들과 겹치지 않는 장소 선택
+4. JSON 형식으로 단일 activity 객체만 반환
+
+JSON 형식:
+{{
+    "time": "시간",
+    "title": "실제 장소명",
+    "location": "구체적인 주소",
+    "description": "활동 설명",
+    "duration": "소요시간"
+}}
+"""
+            
+            # OpenAI API 호출
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "당신은 여행 전문가입니다. 실제 존재하는 장소만 추천해주세요."},
+                    {"role": "user", "content": regeneration_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.7
+            )
+            
+            content = response.choices[0].message.content.strip()
+            
+            # JSON 파싱
+            start_idx = content.find('{')
+            end_idx = content.rfind('}') + 1
+            if start_idx != -1 and end_idx != -1:
+                json_str = content[start_idx:end_idx]
+                new_activity = json.loads(json_str)
+                
+                # 새로운 활동으로 교체
+                trip_data["itinerary"][day_idx]["activities"][activity_idx] = new_activity
+                logger.info(f"{day_num}일차 활동 재생성 완료: {original.get('title')} -> {new_activity.get('title')}")
+            else:
+                logger.error(f"{day_num}일차 활동 재생성 실패: JSON 파싱 오류")
+                
+        except Exception as e:
+            logger.error(f"{day_num}일차 활동 재생성 중 오류 발생: {str(e)}")
+    
+    return trip_data
+
+# ========================================
+# 중복 장소 제거 함수
+# ========================================
+async def remove_duplicate_locations(trip_data: dict, destination: str) -> dict:
+    """
+    여행 계획에서 중복되는 장소를 감지하고 제거합니다.
+    중복된 장소는 새로운 장소로 교체됩니다.
+    """
+    if not trip_data.get("itinerary"):
+        return trip_data
+    
+    visited_locations = set()
+    duplicates = []
+    
+    # 중복 장소 감지
+    for day_idx, day in enumerate(trip_data["itinerary"]):
+        if not day.get("activities"):
+            continue
+            
+        for activity_idx, activity in enumerate(day["activities"]):
+            # 호텔/숙박 관련 활동은 체크하지 않음
+            title = activity.get('title', '').lower()
+            if any(keyword in title for keyword in ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out']):
+                continue
+            
+            # 장소명으로 중복 체크
+            place_name = activity.get('title', '').strip()
+            location_name = activity.get('location', '').strip()
+            
+            # 정규화된 장소명 생성 (공백, 특수문자 제거)
+            normalized_title = ''.join(place_name.lower().split())
+            normalized_location = ''.join(location_name.lower().split())
+            
+            # 중복 체크 (제목 또는 위치가 같으면 중복으로 간주)
+            location_key = normalized_title or normalized_location
+            
+            if location_key and location_key in visited_locations:
+                duplicates.append({
+                    'day_idx': day_idx,
+                    'activity_idx': activity_idx,
+                    'day': day.get('day'),
+                    'original_activity': activity.copy(),
+                    'duplicate_key': location_key
+                })
+                logger.info(f"중복 장소 발견: {place_name} ({day.get('day')}일차)")
+            elif location_key:
+                visited_locations.add(location_key)
+    
+    # 중복된 장소들을 새로운 장소로 교체
+    if duplicates:
+        logger.info(f"중복된 장소 {len(duplicates)}개를 새로운 장소로 교체합니다...")
+        trip_data = await replace_duplicate_activities(trip_data, duplicates, destination, visited_locations)
+    
+    return trip_data
+
+async def replace_duplicate_activities(trip_data: dict, duplicates: list, destination: str, visited_locations: set) -> dict:
+    """
+    중복된 활동들을 새로운 장소로 교체합니다.
+    """
+    for duplicate in duplicates:
+        day_idx = duplicate['day_idx']
+        activity_idx = duplicate['activity_idx']
+        day_num = duplicate['day']
+        original = duplicate['original_activity']
+        
+        try:
+            # 해당 일차의 다른 활동들 정보 수집
+            day_activities = trip_data["itinerary"][day_idx]["activities"]
+            other_activities = [act for i, act in enumerate(day_activities) if i != activity_idx]
+            
+            # 이미 방문한 장소들 목록 생성
+            visited_list = list(visited_locations)
+            
+            # 교체용 프롬프트
+            replacement_prompt = f"""
+다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 다른 장소로 교체해주세요.
+이 장소는 이미 다른 날에 방문 예정이므로 중복을 피해야 합니다.
+
+현재 {day_num}일차 다른 활동들:
+{json.dumps(other_activities, ensure_ascii=False, indent=2)}
+
+이미 방문 예정인 장소들 (피해야 할 장소들):
+{', '.join(visited_list[:10])}  # 처음 10개만 표시
+
+요구사항:
+1. {destination} 지역에 실제로 존재하는 관광지/맛집/체험활동으로 교체
+2. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
+3. 위에 나열된 장소들과 완전히 다른 새로운 장소 선택
+4. 다른 활동들과 지리적으로 접근 가능한 장소 선택
+5. JSON 형식으로 단일 activity 객체만 반환
+
+JSON 형식:
+{{
+    "time": "시간",
+    "title": "새로운 실제 장소명",
+    "location": "구체적인 주소",
+    "description": "활동 설명",
+    "duration": "소요시간"
+}}
+"""
+            
+            # OpenAI API 호출
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "당신은 여행 전문가입니다. 중복을 피해 실제 존재하는 새로운 장소만 추천해주세요."},
+                    {"role": "user", "content": replacement_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.8  # 더 다양한 결과를 위해 온도 증가
+            )
+            
+            content = response.choices[0].message.content.strip()
+            
+            # JSON 파싱
+            start_idx = content.find('{')
+            end_idx = content.rfind('}') + 1
+            if start_idx != -1 and end_idx != -1:
+                json_str = content[start_idx:end_idx]
+                new_activity = json.loads(json_str)
+                
+                # 새로운 활동으로 교체
+                trip_data["itinerary"][day_idx]["activities"][activity_idx] = new_activity
+                
+                # 새로운 장소를 방문 목록에 추가
+                new_place_name = new_activity.get('title', '').strip()
+                if new_place_name:
+                    normalized_new = ''.join(new_place_name.lower().split())
+                    visited_locations.add(normalized_new)
+                
+                logger.info(f"{day_num}일차 중복 장소 교체 완료: {original.get('title')} -> {new_activity.get('title')}")
+            else:
+                logger.error(f"{day_num}일차 중복 장소 교체 실패: JSON 파싱 오류")
+                
+        except Exception as e:
+            logger.error(f"{day_num}일차 중복 장소 교체 중 오류 발생: {str(e)}")
+    
+    return trip_data
+
+# ========================================
 # 로깅 설정 (로그: 프로그램 실행 과정을 기록하는 것)
 # ========================================
 logging.basicConfig(level=logging.INFO)  # INFO 레벨 이상의 로그를 모두 기록
@@ -650,6 +1016,11 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     logger.error("OPENAI_API_KEY가 설정되지 않았습니다!")
     raise ValueError("OPENAI_API_KEY 환경 변수를 설정해주세요.")
+
+# 카카오 로컬 API 키를 환경변수에서 가져옵니다
+kakao_api_key = os.getenv("KAKAO_API_KEY")
+if not kakao_api_key:
+    logger.warning("KAKAO_API_KEY가 설정되지 않았습니다. 장소 검증 기능이 제한됩니다.")
 
 # OpenAI 클라이언트를 초기화합니다 (최신 버전 호환)
 client = openai.OpenAI(api_key=openai_api_key)
@@ -1248,6 +1619,9 @@ async def plan_trip(request: TripRequest):
         # 호텔 검색 서비스를 초기화합니다
         hotel_service = HotelSearchService()
         
+        # 카카오 로컬 서비스를 초기화합니다
+        kakao_service = KakaoLocalService()
+        
         # 여행 일수를 계산합니다
         try:
             start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
@@ -1269,10 +1643,10 @@ async def plan_trip(request: TripRequest):
         여행 페이스: {request.travelPace if request.travelPace else '보통'}
         
         ⚠️ **중요 지침: 실제 존재하는 장소만 추천해주세요**
-        - 모든 관광지, 음식점, 호텔명은 실제로 존재하는 장소여야 합니다
+        - 모든 관광지, 음식점, 실제로 존재하는 장소여야 합니다
         - 확실하지 않은 장소는 추천하지 마세요
         - 유명하고 검증된 관광명소를 우선적으로 포함해주세요
-        - 호텔명은 체인호텔(롯데호텔, 신라호텔, 그랜드하얏트 등) 또는 널리 알려진 호텔만 사용해주세요
+        - 호텔은 알려주지 마세요
         
         ⚠️ **음식점 및 장소 추천 시 주의사항**
         - 가상의 동네명이나 지역명을 만들지 마세요 (예: "하구마을", "중앙시장" 등)
@@ -1328,6 +1702,7 @@ async def plan_trip(request: TripRequest):
         4. 각 activity에는 정확한 시간(time), 제목(title), 위치(location), 설명(description), 소요시간(duration)을 포함해주세요.
         5. time은 24시간 형식(예: "09:00", "14:30")으로 작성하고, 여행 페이스에 따라 활동 간격을 조절해주세요.
         6. total_cost는 반드시 "1인당 XXX,XXX원" 형식으로 작성해주세요. 예산별 가이드: 저예산(1일 8-10만원), 보통(1일 12-15만원), 고급(1일 20-25만원), 럭셔리(1일 35-50만원). 예시: "1인당 375,000원"
+        7. **중복 장소 금지**: 같은 장소(관광지, 음식점 등)를 여러 날에 중복으로 포함하지 마세요. 각 장소는 한 번만 방문하도록 계획해주세요.
         """
         
         logger.info("OpenAI API 호출 시작...")
@@ -1359,6 +1734,14 @@ async def plan_trip(request: TripRequest):
                 json_str = content[start_idx:end_idx]
                 logger.info(f"추출된 JSON: {json_str}")
                 trip_data = json.loads(json_str)
+                
+                # 중복 장소 제거
+                logger.info("중복 장소 검사를 시작합니다...")
+                trip_data = await remove_duplicate_locations(trip_data, request.destination)
+                
+                # 카카오 API로 장소 검증 및 보강
+                logger.info("카카오 API를 사용하여 장소 검증을 시작합니다...")
+                trip_data = await verify_and_enrich_trip_data(trip_data, kakao_service, request.destination)
                 
                 # 호텔 정보에 예약 링크를 추가합니다
                 for hotel in trip_data.get("accommodation", []):

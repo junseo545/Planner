@@ -1,72 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ArrowLeft, ExternalLink, Download, Share2, MapPin, Calendar, DollarSign, ChevronUp, Send } from 'lucide-react';
 import { TripResultProps } from '../types';
+import TripMap from './TripMap';
 
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdated }): React.JSX.Element => {
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [chatHistory, setChatHistory] = useState<Array<{type: 'user' | 'assistant', message: string}>>([]);
+  const [selectedDay, setSelectedDay] = useState(1);
+
+  // 지도에 표시할 위치 데이터 준비 (선택된 일차만)
+  const mapLocations = useMemo(() => {
+    const locations: any[] = [];
+    
+    // 선택된 일차의 데이터만 필터링
+    const selectedDayData = tripPlan.itinerary.find(day => day.day === selectedDay);
+    
+    if (selectedDayData && selectedDayData.activities) {
+      selectedDayData.activities
+        .filter((activity: any) => {
+          // 호텔/숙박 관련 활동 필터링
+          const title = activity.title?.toLowerCase() || '';
+          const description = activity.description?.toLowerCase() || '';
+          const category = activity.place_category?.toLowerCase() || '';
+          
+          const hotelKeywords = ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out', '펜션', '게스트하우스', '모텔'];
+          
+          return !hotelKeywords.some(keyword => 
+            title.includes(keyword) || 
+            description.includes(keyword) || 
+            category.includes(keyword)
+          );
+        })
+        .forEach((activity: any) => {
+          locations.push({
+            title: activity.title,
+            location: activity.location,
+            real_address: activity.real_address,
+            description: activity.description,
+            time: activity.time,
+            day: selectedDayData.day
+          });
+        });
+    }
+    
+    return locations;
+  }, [tripPlan, selectedDay]);
   // duration에서 "(3일)" 같은 텍스트를 제거하는 함수
   const formatDuration = (duration: string): string => {
     // "(3일)" 같은 패턴을 제거
     return duration.replace(/\s*\(\d+일\)/, '');
   };
 
-  // 일정표를 렌더링하는 함수
-  const renderSchedule = (day: any) => {
-    return (
-      <div key={day.day} className="itinerary-day">
-        <div className="day-header">
-          <span className="day-badge">
-            {day.day}일차
-          </span>
-          <span className="day-date">{day.date}</span>
-        </div>
-        
-        <div className="day-activities">
-          {day.activities && day.activities
-            .filter((activity: any) => {
-              // 호텔/숙박 관련 활동 필터링
-              const title = activity.title?.toLowerCase() || '';
-              const description = activity.description?.toLowerCase() || '';
-              const category = activity.place_category?.toLowerCase() || '';
-              
-              // 호텔, 숙박, 체크인, 체크아웃 등의 키워드가 포함된 활동 제외
-              const hotelKeywords = ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out', '펜션', '게스트하우스', '모텔'];
-              
-              return !hotelKeywords.some(keyword => 
-                title.includes(keyword) || 
-                description.includes(keyword) || 
-                category.includes(keyword)
-              );
-            })
-            .map((activity: any, index: number) => (
-            <div key={index} className="activity-item">
-              <div className="activity-number">
-                <span className="number-badge">{index + 1}</span>
-              </div>
-              <div className="activity-content">
-                <h4 className="activity-title">{activity.title}</h4>
-                <div className="activity-location-info">
-                  <p className="activity-location">📍 {activity.real_address || activity.location}</p>
-                  {activity.place_category && (
-                    <p className="activity-category">{activity.place_category}</p>
-                  )}
-                  {activity.place_telephone && (
-                    <p className="activity-phone">📞 {activity.place_telephone}</p>
-                  )}
-                </div>
-                <p className="activity-description">{activity.description}</p>
 
-              </div>
-            </div>
-          ))}
-        </div>
-        
-
-      </div>
-    );
-  };
 
   const handleDownload = (): void => {
     const content = `
@@ -261,15 +247,82 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
         </div>
       </div>
 
-      {/* 상세 일정 */}
+      {/* 지도 */}
+      {mapLocations.length > 0 && (
+        <div className="map-card">
+          <TripMap locations={mapLocations} destination={tripPlan.destination} />
+        </div>
+      )}
+
+      {/* 선택된 일차의 상세 일정 */}
       <div className="itinerary-card">
         <h2 className="itinerary-title">📅 상세 일정</h2>
+        
+        {/* 일차별 탭 */}
+        <div className="day-tabs">
+          {tripPlan.itinerary.map((day) => (
+            <button
+              key={day.day}
+              onClick={() => setSelectedDay(day.day)}
+              className={`day-tab ${selectedDay === day.day ? 'active' : ''}`}
+            >
+              Day {day.day}
+            </button>
+          ))}
+        </div>
+        
+        {/* 선택된 일차의 일정만 표시 */}
         <div className="itinerary-list">
-          {tripPlan.itinerary.map((day) => renderSchedule(day))}
+          {tripPlan.itinerary
+            .filter(day => day.day === selectedDay)
+            .map((day) => (
+              <div key={day.day} className="itinerary-day">
+                <div className="day-header">
+                  <span className="day-badge">
+                    {day.day}일차
+                  </span>
+                  <span className="day-date">{day.date}</span>
+                </div>
+                
+                <div className="day-activities">
+                  {day.activities && day.activities
+                    .filter((activity: any) => {
+                      // 호텔/숙박 관련 활동 필터링
+                      const title = activity.title?.toLowerCase() || '';
+                      const description = activity.description?.toLowerCase() || '';
+                      const category = activity.place_category?.toLowerCase() || '';
+                      
+                      // 호텔, 숙박, 체크인, 체크아웃 등의 키워드가 포함된 활동 제외
+                      const hotelKeywords = ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out', '펜션', '게스트하우스', '모텔'];
+                      
+                      return !hotelKeywords.some(keyword => 
+                        title.includes(keyword) || 
+                        description.includes(keyword) || 
+                        category.includes(keyword)
+                      );
+                    })
+                    .map((activity: any, index: number) => (
+                    <div key={index} className="activity-item">
+                      <div className="activity-number">
+                        <span className="number-badge">{index + 1}</span>
+                      </div>
+                      <div className="activity-content">
+                        <h4 className="activity-title">{activity.title}</h4>
+                        <div className="activity-location-info">
+                          <p className="activity-location">📍 {activity.real_address || activity.location}</p>
+                          {activity.place_category && (
+                            <p className="activity-category">{activity.place_category}</p>
+                          )}
+                        </div>
+                        <p className="activity-description">{activity.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
         </div>
       </div>
-
-
 
       {/* 전체 여행 호텔 검색 링크 */}
       {tripPlan.trip_hotel_search && (
