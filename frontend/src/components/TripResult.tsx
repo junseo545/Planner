@@ -32,14 +32,15 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
             category.includes(keyword)
           );
         })
-        .forEach((activity: any) => {
+        .forEach((activity: any, activityIndex: number) => {
           locations.push({
             title: activity.title,
             location: activity.location,
             real_address: activity.real_address,
             description: activity.description,
             time: activity.time,
-            day: selectedDayData.day
+            day: selectedDayData.day,
+            order: activityIndex + 1 // 일정 순서 번호 추가
           });
         });
     }

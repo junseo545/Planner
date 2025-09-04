@@ -808,22 +808,26 @@ async def regenerate_failed_activities(trip_data: dict, failed_activities: list,
             
             # 재생성 프롬프트
             regeneration_prompt = f"""
-다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 실제 존재하는 장소로 대체해주세요.
+다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 실제 존재하는 구체적인 장소로 대체해주세요.
 
 현재 {day_num}일차 다른 활동들:
 {json.dumps(other_activities, ensure_ascii=False, indent=2)}
 
-요구사항:
+⚠️ **필수 요구사항 - 구체적인 장소명 사용**:
 1. {destination} 지역에 실제로 존재하는 관광지/맛집/체험활동으로 대체
 2. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
-3. 다른 활동들과 겹치지 않는 장소 선택
-4. JSON 형식으로 단일 activity 객체만 반환
+3. 앞에 일차에 있는 활동과 겹치지 않는 장소 선택
+4. **반드시 구체적인 고유명사를 사용하세요**:
+   ❌ 잘못된 예: "해변 산책", "시장 구경", "공원 방문"
+   ✅ 올바른 예: "경포해변 산책", "자갈치시장 구경", "남산공원 방문"
+5. location 필드는 구체적인 주소나 고유명사 포함 필수
+6. JSON 형식으로 단일 activity 객체만 반환
 
 JSON 형식:
 {{
     "time": "시간",
-    "title": "실제 장소명",
-    "location": "구체적인 주소",
+    "title": "구체적인 장소명을 포함한 활동명 (예: 경포해변 산책)",
+    "location": "정확한 주소 또는 구체적인 장소명 (예: 강릉시 창해로 365, 경포해변)",
     "description": "활동 설명",
     "duration": "소요시간"
 }}
@@ -833,7 +837,7 @@ JSON 형식:
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "당신은 여행 전문가입니다. 실제 존재하는 장소만 추천해주세요."},
+                    {"role": "system", "content": "당신은 여행 전문가입니다. 실제 존재하는 구체적인 고유명사 장소만 추천해주세요. 모호한 표현(해변, 시장, 공원 등) 대신 정확한 장소명(경포해변, 자갈치시장, 남산공원 등)을 사용하세요."},
                     {"role": "user", "content": regeneration_prompt}
                 ],
                 max_tokens=500,
@@ -863,6 +867,98 @@ JSON 형식:
 # ========================================
 # 중복 장소 제거 함수
 # ========================================
+def _extract_location_keywords(place_name: str, location_name: str) -> list:
+    """장소명에서 중복 감지를 위한 키워드들을 추출합니다."""
+    keywords = set()
+    
+    # 두 필드 모두에서 키워드 추출
+    for text in [place_name, location_name]:
+        if not text:
+            continue
+            
+        # 기본 정규화 (공백, 특수문자 제거)
+        normalized = ''.join(text.lower().split())
+        keywords.add(normalized)
+        
+        # 주요 장소 키워드 추출
+        location_keywords = _extract_major_location_keywords(text)
+        keywords.update(location_keywords)
+    
+    return list(filter(None, keywords))
+
+def _extract_major_location_keywords(text: str) -> set:
+    """텍스트에서 주요 장소 키워드를 추출합니다."""
+    import re
+    keywords = set()
+    
+    # 주요 관광지 패턴들
+    patterns = [
+        r'([가-힣]{2,}케이블카)',     # 해상케이블카, 남산케이블카
+        r'([가-힣]{2,}도)',          # 오동도, 제주도
+        r'([가-힣]{2,}해수욕장)',    # 해운대해수욕장
+        r'([가-힣]{2,}해변)',        # 경포해변
+        r'([가-힣]{2,}폭포)',        # 천지연폭포
+        r'([가-힣]{2,}공원)',        # 남산공원
+        r'([가-힣]{2,}시장)',        # 자갈치시장
+        r'([가-힣]{2,}박물관)',      # 국립중앙박물관
+        r'([가-힣]{2,}미술관)',      # 국립현대미술관
+        r'([가-힣]{2,}사)',          # 불국사
+        r'([가-힣]{2,}궁)',          # 경복궁
+        r'([가-힣]{2,}성)',          # 수원화성
+        r'([가-힣]{2,}탑)',          # 남산타워
+        r'([가-힣]{2,}다리)',        # 광안대교
+        r'([가-힣]{2,}항)',          # 부산항
+        r'([가-힣]{2,}역)',          # 서울역
+        r'([가-힣]{2,}터미널)',      # 고속터미널
+        r'([가-힣]{2,}전망대)',      # 부산타워전망대
+        r'([가-힣]{2,}아쿠아리움)',  # 코엑스아쿠아리움
+        r'([가-힣]{2,}테마파크)',    # 에버랜드테마파크
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            keywords.add(match.lower())
+    
+    # 특별한 관광지 조합 처리 (연결된 관광지들)
+    special_combinations = {
+        '해상케이블카': ['오동도', '해상케이블카', '여수해상케이블카'],
+        '오동도': ['오동도', '해상케이블카', '여수해상케이블카'],
+        '남산타워': ['남산타워', 'n서울타워', '서울타워'],
+        'n서울타워': ['남산타워', 'n서울타워', '서울타워'],
+        '서울타워': ['남산타워', 'n서울타워', '서울타워'],
+    }
+    
+    text_lower = text.lower()
+    for key, related_places in special_combinations.items():
+        if key in text_lower:
+            keywords.update(related_places)
+    
+    return keywords
+
+def _is_similar_location(keyword1: str, keyword2: str) -> bool:
+    """두 장소 키워드가 유사한지 판단합니다."""
+    if not keyword1 or not keyword2:
+        return False
+    
+    # 완전 일치
+    if keyword1 == keyword2:
+        return True
+    
+    # 한쪽이 다른 쪽을 포함하는 경우 (길이가 3글자 이상일 때만)
+    if len(keyword1) >= 3 and len(keyword2) >= 3:
+        if keyword1 in keyword2 or keyword2 in keyword1:
+            return True
+    
+    # 공통 부분이 70% 이상인 경우
+    if len(keyword1) >= 4 and len(keyword2) >= 4:
+        common_chars = set(keyword1) & set(keyword2)
+        similarity = len(common_chars) / max(len(set(keyword1)), len(set(keyword2)))
+        if similarity >= 0.7:
+            return True
+    
+    return False
+
 async def remove_duplicate_locations(trip_data: dict, destination: str) -> dict:
     """
     여행 계획에서 중복되는 장소를 감지하고 제거합니다.
@@ -889,24 +985,43 @@ async def remove_duplicate_locations(trip_data: dict, destination: str) -> dict:
             place_name = activity.get('title', '').strip()
             location_name = activity.get('location', '').strip()
             
-            # 정규화된 장소명 생성 (공백, 특수문자 제거)
-            normalized_title = ''.join(place_name.lower().split())
-            normalized_location = ''.join(location_name.lower().split())
+            # 더 정교한 중복 감지를 위한 키워드 추출
+            location_keys = _extract_location_keywords(place_name, location_name)
             
-            # 중복 체크 (제목 또는 위치가 같으면 중복으로 간주)
-            location_key = normalized_title or normalized_location
+            # 중복 체크 - 추출된 키워드들 중 하나라도 이미 방문한 장소와 겹치면 중복으로 간주
+            is_duplicate = False
+            duplicate_key = None
             
-            if location_key and location_key in visited_locations:
+            for key in location_keys:
+                if key and key in visited_locations:
+                    is_duplicate = True
+                    duplicate_key = key
+                    break
+                    
+                # 기존 방문 장소들과 유사성 검사
+                for visited_key in visited_locations:
+                    if _is_similar_location(key, visited_key):
+                        is_duplicate = True
+                        duplicate_key = key
+                        break
+                        
+                if is_duplicate:
+                    break
+            
+            if is_duplicate:
                 duplicates.append({
                     'day_idx': day_idx,
                     'activity_idx': activity_idx,
                     'day': day.get('day'),
                     'original_activity': activity.copy(),
-                    'duplicate_key': location_key
+                    'duplicate_key': duplicate_key
                 })
-                logger.info(f"중복 장소 발견: {place_name} ({day.get('day')}일차)")
-            elif location_key:
-                visited_locations.add(location_key)
+                logger.info(f"중복 장소 발견: {place_name} ({day.get('day')}일차) - 중복 키워드: {duplicate_key}")
+            else:
+                # 중복이 아닌 경우 모든 키워드를 방문 목록에 추가
+                for key in location_keys:
+                    if key:
+                        visited_locations.add(key)
     
     # 중복된 장소들을 새로운 장소로 교체
     if duplicates:
@@ -935,7 +1050,7 @@ async def replace_duplicate_activities(trip_data: dict, duplicates: list, destin
             
             # 교체용 프롬프트
             replacement_prompt = f"""
-다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 다른 장소로 교체해주세요.
+다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 다른 구체적인 장소로 교체해주세요.
 이 장소는 이미 다른 날에 방문 예정이므로 중복을 피해야 합니다.
 
 현재 {day_num}일차 다른 활동들:
@@ -944,18 +1059,21 @@ async def replace_duplicate_activities(trip_data: dict, duplicates: list, destin
 이미 방문 예정인 장소들 (피해야 할 장소들):
 {', '.join(visited_list[:10])}  # 처음 10개만 표시
 
-요구사항:
+⚠️ **필수 요구사항 - 구체적인 장소명 사용**:
 1. {destination} 지역에 실제로 존재하는 관광지/맛집/체험활동으로 교체
 2. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
 3. 위에 나열된 장소들과 완전히 다른 새로운 장소 선택
 4. 다른 활동들과 지리적으로 접근 가능한 장소 선택
-5. JSON 형식으로 단일 activity 객체만 반환
+5. **반드시 구체적인 고유명사를 사용하세요**:
+   ❌ 잘못된 예: "다른 해변", "또 다른 시장", "새로운 공원"
+   ✅ 올바른 예: "광안리해변", "국제시장", "용두산공원"
+6. JSON 형식으로 단일 activity 객체만 반환
 
 JSON 형식:
 {{
     "time": "시간",
-    "title": "새로운 실제 장소명",
-    "location": "구체적인 주소",
+    "title": "구체적인 장소명을 포함한 새로운 활동명",
+    "location": "정확한 주소 또는 구체적인 장소명",
     "description": "활동 설명",
     "duration": "소요시간"
 }}
@@ -965,7 +1083,7 @@ JSON 형식:
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "당신은 여행 전문가입니다. 중복을 피해 실제 존재하는 새로운 장소만 추천해주세요."},
+                    {"role": "system", "content": "당신은 여행 전문가입니다. 중복을 피해 실제 존재하는 구체적인 고유명사 새로운 장소만 추천해주세요. 모호한 표현 대신 정확한 장소명을 사용하세요."},
                     {"role": "user", "content": replacement_prompt}
                 ],
                 max_tokens=500,
@@ -1563,26 +1681,49 @@ class HotelSearchService:
         if not activity_text:
             return destination
         
-        # 주요 관광지 키워드 패턴
+        # 구체적인 관광지 키워드 패턴 (2글자 이상 고유명사 + 접미사)
         location_patterns = [
-            r'([가-힣]+해수욕장)',  # 해수욕장
-            r'([가-힣]+시장)',      # 시장
-            r'([가-힣]+공원)',      # 공원
-            r'([가-힣]+역)',        # 역
-            r'([가-힣]+항)',        # 항
-            r'([가-힣]+봉)',        # 봉
-            r'([가-힣]+굴)',        # 굴
-            r'([가-힣]+사)',        # 사찰
-            r'([가-힣]+궁)',        # 궁궐
-            r'([가-힣]+성)',        # 성
-            r'([가-힣]+탑)',        # 탑
-            r'([가-힣]+다리)',      # 다리
-            r'([가-힣]+거리)',      # 거리
-            r'([가-힣]+로)',        # 도로
-            r'([가-힣]+동)',        # 동
-            r'([가-힣]+구)',        # 구
-            r'([가-힣]+읍)',        # 읍
-            r'([가-힣]+면)'         # 면
+            # 자연 관광지
+            r'([가-힣]{2,}해수욕장)',  # 해운대해수욕장, 경포해수욕장
+            r'([가-힣]{2,}해변)',      # 광안리해변, 경포해변
+            r'([가-힣]{2,}폭포)',      # 천지연폭포, 정방폭포
+            r'([가-힣]{2,}산)',        # 한라산, 지리산
+            r'([가-힣]{2,}봉)',        # 성산일출봉, 우도봉
+            r'([가-힣]{2,}강)',        # 한강, 낙동강
+            r'([가-힣]{2,}호수)',      # 천지호수, 밤섬호수
+            r'([가-힣]{2,}굴)',        # 만장굴, 협재굴
+            
+            # 문화/역사 관광지
+            r'([가-힣]{2,}사)',        # 불국사, 해인사, 조계사
+            r'([가-힣]{2,}궁)',        # 경복궁, 창덕궁, 덕수궁
+            r'([가-힣]{2,}성)',        # 수원화성, 남한산성
+            r'([가-힣]{2,}탑)',        # 남산타워, 부산타워
+            r'([가-힣]{2,}박물관)',    # 국립중앙박물관, 전쟁기념관
+            r'([가-힣]{2,}미술관)',    # 국립현대미술관, 리움미술관
+            r'([가-힣]{2,}문화재)',    # 석굴암문화재
+            
+            # 도시 인프라
+            r'([가-힣]{2,}시장)',      # 동대문시장, 남대문시장, 자갈치시장
+            r'([가-힣]{2,}공원)',      # 남산공원, 올림픽공원, 한강공원
+            r'([가-힣]{2,}역)',        # 서울역, 부산역, 제주공항
+            r'([가-힣]{2,}항)',        # 부산항, 인천항, 제주항
+            r'([가-힣]{2,}다리)',      # 광안대교, 한강대교, 반포대교
+            r'([가-힣]{2,}거리)',      # 명동거리, 홍대거리, 가로수길
+            r'([가-힣]{2,}로)',        # 청계천로, 강남대로
+            
+            # 행정구역 (구체적인 지명)
+            r'([가-힣]{2,}동)',        # 명동, 홍대동, 강남동
+            r'([가-힣]{2,}구)',        # 강남구, 종로구, 해운대구
+            r'([가-힣]{2,}시)',        # 부산시, 제주시, 강릉시
+            r'([가-힣]{2,}군)',        # 제주서귀포시, 강화군
+            r'([가-힣]{2,}읍)',        # 성산읍, 한림읍
+            r'([가-힣]{2,}면)',        # 애월면, 구좌면
+            
+            # 복합 명칭
+            r'([가-힣]{2,}테마파크)',  # 에버랜드테마파크, 롯데월드테마파크
+            r'([가-힣]{2,}리조트)',    # 제주신화월드리조트
+            r'([가-힣]{2,}아쿠아리움)', # 코엑스아쿠아리움
+            r'([가-힣]{2,}전망대)',    # 서울스카이전망대, 부산타워전망대
         ]
         
         for pattern in location_patterns:
@@ -1642,17 +1783,29 @@ async def plan_trip(request: TripRequest):
         투숙객: {request.guests}명, 객실: {request.rooms}개
         여행 페이스: {request.travelPace if request.travelPace else '보통'}
         
-        ⚠️ **중요 지침: 실제 존재하는 장소만 추천해주세요**
-        - 모든 관광지, 음식점, 실제로 존재하는 장소여야 합니다
+        ⚠️ **중요 지침: 실제 존재하는 구체적인 장소만 추천해주세요**
+        - 모든 관광지, 음식점은 실제로 존재하는 구체적인 장소명을 사용해야 합니다
         - 확실하지 않은 장소는 추천하지 마세요
         - 유명하고 검증된 관광명소를 우선적으로 포함해주세요
         - 호텔은 알려주지 마세요
         
-        ⚠️ **음식점 및 장소 추천 시 주의사항**
-        - 가상의 동네명이나 지역명을 만들지 마세요 (예: "하구마을", "중앙시장" 등)
-        - 음식점명은 구체적인 상호명 대신 "현지 유명 빈대떡집", "전통 한식당" 등으로 표현하세요
-        - 위치는 실제 도로명이나 동명을 사용하세요 (예: "여수시 중앙동", "여수 돌산대교 근처")
-        - 불확실한 정보보다는 일반적인 설명을 선호하세요
+        ⚠️ **구체적인 장소명 사용 필수 지침**
+        - 모호한 표현 대신 정확한 고유명사를 사용하세요
+          ❌ 잘못된 예: "강릉 해변 산책", "부산 해수욕장", "제주 폭포"
+          ✅ 올바른 예: "경포해변 산책", "해운대해수욕장", "천지연폭포"
+        - 음식점도 구체적인 지역명과 함께 표현하세요
+          ❌ 잘못된 예: "현지 유명 식당", "전통 한식당"
+          ✅ 올바른 예: "남포동 국밥골목", "명동교자 본점"
+        - 위치(location)는 반드시 구체적인 주소나 고유명사를 포함하세요
+          ❌ 잘못된 예: "시내 중심가", "해변가"
+          ✅ 올바른 예: "강릉시 창해로 365", "경포해변"
+        - 여러 선택지가 있는 경우 가장 유명한 하나를 선택하세요
+          예: "강릉 해변" → "경포해변" (강릉의 대표 해변)
+        
+        ⚠️ **추가 주의사항**
+        - 가상의 동네명이나 지역명을 만들지 마세요
+        - 불확실한 정보보다는 확실한 구체적 장소를 선호하세요
+        - 각 지역의 대표적이고 유명한 장소를 우선 선택하세요
         
         다음 형식으로 JSON 응답을 제공해주세요:
         
@@ -1669,8 +1822,8 @@ async def plan_trip(request: TripRequest):
                     "activities": [
                         {{
                             "time": "09:00",
-                            "title": "활동명",
-                            "location": "구체적인 장소명",
+                            "title": "구체적인 활동명 (고유명사 포함)",
+                            "location": "정확한 주소 또는 구체적인 장소명 (예: 경포해변, 강릉시 창해로 365)",
                             "description": "활동 설명",
                             "duration": "소요시간"
                         }}
@@ -1699,10 +1852,18 @@ async def plan_trip(request: TripRequest):
         3. activities 배열에는 여행 페이스에 따라 다른 수의 활동을 포함해주세요:
            - "타이트하게": 하루에 4-6개 활동 (시간별로 세밀하게 계획된 일정)
            - "널널하게": 하루에 2-3개 활동 (각 활동에 충분한 시간 할애)
-        4. 각 activity에는 정확한 시간(time), 제목(title), 위치(location), 설명(description), 소요시간(duration)을 포함해주세요.
+        4. 각 activity에는 정확한 시간(time), 구체적인 제목(title), 정확한 위치(location), 설명(description), 소요시간(duration)을 포함해주세요.
         5. time은 24시간 형식(예: "09:00", "14:30")으로 작성하고, 여행 페이스에 따라 활동 간격을 조절해주세요.
-        6. total_cost는 반드시 "1인당 XXX,XXX원" 형식으로 작성해주세요. 예산별 가이드: 저예산(1일 8-10만원), 보통(1일 12-15만원), 고급(1일 20-25만원), 럭셔리(1일 35-50만원). 예시: "1인당 375,000원"
-        7. **중복 장소 금지**: 같은 장소(관광지, 음식점 등)를 여러 날에 중복으로 포함하지 마세요. 각 장소는 한 번만 방문하도록 계획해주세요.
+        6. **title과 location 필드는 반드시 구체적인 고유명사를 포함해야 합니다**:
+           - title: "경포해변 산책", "해운대해수욕장 방문" (모호한 "해변 산책" 금지)
+           - location: "경포해변", "부산광역시 해운대구 해운대해변로" (모호한 "해변가" 금지)
+        7. total_cost는 반드시 "1인당 XXX,XXX원" 형식으로 작성해주세요. 예산별 가이드: 저예산(1일 8-10만원), 보통(1일 12-15만원), 고급(1일 20-25만원), 럭셔리(1일 35-50만원). 예시: "1인당 375,000원"
+        8. **중복 장소 엄격 금지**: 
+           - 같은 장소(관광지, 음식점 등)를 여러 날에 중복으로 포함하지 마세요
+           - 각 장소는 전체 여행 기간 동안 단 한 번만 방문하도록 계획해주세요
+           - 예시: 1일차에 "해상케이블카"가 있으면 2일차, 3일차에는 절대 포함하지 마세요
+           - 예시: 1일차에 "오동도"가 있으면 다른 날에는 "오동도" 관련 어떤 활동도 포함하지 마세요
+           - 유사한 장소도 피하세요 (예: "남산타워"와 "N서울타워"는 같은 장소)
         """
         
         logger.info("OpenAI API 호출 시작...")
@@ -1712,7 +1873,7 @@ async def plan_trip(request: TripRequest):
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",  # 사용할 AI 모델
             messages=[
-                {"role": "system", "content": f"당신은 전문 여행 플래너입니다. 상세하고 실용적인 여행 계획을 제공해주세요. {travel_days}일 여행 계획을 만들어주세요. 호텔명은 실제 존재하는 구체적인 호텔명을 사용해주세요."},
+                {"role": "system", "content": f"당신은 전문 여행 플래너입니다. 상세하고 실용적인 여행 계획을 제공해주세요. {travel_days}일 여행 계획을 만들어주세요. **중요**: 1) 모든 장소명은 구체적인 고유명사를 사용해야 합니다. 모호한 표현(해변, 시장, 공원 등) 대신 정확한 장소명(경포해변, 자갈치시장, 남산공원 등)을 사용하세요. 2) 중복 장소 절대 금지: 같은 장소를 여러 날에 포함하지 마세요. 해상케이블카, 오동도 등 각 장소는 전체 일정에서 단 한 번만 등장해야 합니다. 3) 호텔명도 실제 존재하는 구체적인 호텔명을 사용해주세요."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=3000,  # AI 응답의 최대 길이 (더 긴 응답을 위해 증가)
@@ -2576,9 +2737,18 @@ class PublicTransportService:
                     if destination in activity_text:
                         return destination
             
-            # 일반적인 관광지 키워드 매칭
+            # 구체적인 관광지 키워드 매칭 (고유명사 포함)
             common_keywords = [
-                "해수욕장", "공원", "시장", "역", "항", "봉", "굴", "사", "궁", "성", "탑", "다리", "거리", "로"
+                # 자연 관광지
+                "해수욕장", "해변", "폭포", "산", "봉", "강", "호수", "굴",
+                # 문화/역사 관광지  
+                "사", "궁", "성", "탑", "박물관", "미술관", "문화재",
+                # 도시 인프라
+                "시장", "공원", "역", "항", "다리", "거리", "로",
+                # 행정구역
+                "동", "구", "시", "군", "읍", "면",
+                # 복합 명칭
+                "테마파크", "리조트", "아쿠아리움", "전망대"
             ]
             
             for keyword in common_keywords:

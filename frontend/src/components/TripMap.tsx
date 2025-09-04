@@ -129,11 +129,7 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
 
     console.log('Locations to display:', locations);
 
-    // 기본 중심점 설정 (서울)
-    let centerLat = 37.5665;
-    let centerLng = 126.9780;
-
-    // 목적지에 따른 기본 좌표 설정
+    // 목적지에 따른 기본 좌표 설정 (더 많은 지역 추가)
     const cityCoordinates: { [key: string]: [number, number] } = {
       '서울': [37.5665, 126.9780],
       '부산': [35.1796, 129.0756],
@@ -148,13 +144,22 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
       '전주': [35.8242, 127.1480],
       '여수': [34.7604, 127.6622],
       '강릉': [37.7519, 128.8761],
+      '속초': [38.2070, 128.5918], // 속초 좌표 추가
       '춘천': [37.8813, 127.7298],
       '포항': [36.0190, 129.3435],
       '안동': [36.5684, 128.7294],
+      '양양': [38.0756, 128.6190],
+      '고성': [38.3806, 128.4678],
+      '동해': [37.5244, 129.1144],
+      '삼척': [37.4500, 129.1656],
     };
 
-    // 목적지에서 도시명 추출
+    // 목적지에서 도시명 추출 (더 정확한 매칭)
+    let centerLat = 37.5665; // 기본값 (서울)
+    let centerLng = 126.9780;
+    
     const cityName = Object.keys(cityCoordinates).find(city => 
+      destination.toLowerCase().includes(city.toLowerCase()) || 
       destination.includes(city)
     );
 
@@ -166,9 +171,10 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
     }
 
     try {
+      // 초기 지도는 높은 레벨(넓은 범위)로 시작
       const mapOption = {
         center: new window.kakao.maps.LatLng(centerLat, centerLng),
-        level: 10  // 더 넓은 범위를 보여주기 위해 레벨 증가
+        level: 12  // 높은 레벨로 시작해서 마커들을 모두 포함할 수 있도록
       };
 
       const map = new window.kakao.maps.Map(mapContainer.current, mapOption);
@@ -181,125 +187,209 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
         // 지오코딩을 위한 geocoder 객체 생성
         const geocoder = new window.kakao.maps.services.Geocoder();
         const bounds = new window.kakao.maps.LatLngBounds();
+        const validCoords: any[] = [];
 
         let validLocations = 0;
         let processedCount = 0;
 
-        // 각 위치에 대해 지오코딩 수행
-        locations.forEach((location, index) => {
-          const address = location.real_address || location.location;
-          console.log(`Processing location ${index + 1}: ${address}`);
+        // 각 위치에 대해 지오코딩 수행 (여러 검색 방법 시도)
+        const processLocation = async (location: any, index: number) => {
+          const searchTerms = [
+            location.real_address,
+            location.location,
+            location.title,
+            `${location.title} ${destination}`,
+            `${location.location} ${destination}`
+          ].filter(Boolean); // null/undefined 제거
+
+          console.log(`Processing location ${index + 1}: ${location.title}`);
+          console.log('Search terms:', searchTerms);
+
+          let foundResult = false;
           
-          geocoder.addressSearch(address, (result: any[], status: string) => {
-            processedCount++;
-            console.log(`Geocoding result for "${address}":`, status, result);
+          for (const searchTerm of searchTerms) {
+            if (foundResult) break;
             
-            if (status === window.kakao.maps.services.Status.OK && result.length > 0) {
-              const coords = new window.kakao.maps.LatLng(result[0].y, result[0].x);
-              console.log(`Success! Coordinates: [${result[0].y}, ${result[0].x}]`);
+            try {
+              await new Promise<void>((resolve) => {
+                // 주소 검색 시도
+                geocoder.addressSearch(searchTerm, (addressResults: any[], addressStatus: string) => {
+                  if (addressStatus === window.kakao.maps.services.Status.OK && addressResults.length > 0) {
+                    console.log(`Address search success for "${searchTerm}":`, addressResults[0]);
+                    createMarkerFromResult(addressResults[0], location, index);
+                    foundResult = true;
+                    resolve();
+                    return;
+                  }
+                  
+                  // 주소 검색 실패 시 키워드 검색 시도
+                  geocoder.keywordSearch(searchTerm, (keywordResults: any[], keywordStatus: string) => {
+                    if (keywordStatus === window.kakao.maps.services.Status.OK && keywordResults.length > 0) {
+                      console.log(`Keyword search success for "${searchTerm}":`, keywordResults[0]);
+                      createMarkerFromResult(keywordResults[0], location, index);
+                      foundResult = true;
+                    } else {
+                      console.log(`Both searches failed for "${searchTerm}"`);
+                    }
+                    resolve();
+                  });
+                });
+              });
               
-              // 마커 생성
-              const marker = new window.kakao.maps.Marker({
-                map: map,
-                position: coords
-              });
-
-              // 커스텀 오버레이 내용
-              const content = `
-                <div style="
-                  background: white;
-                  border: 2px solid #4F46E5;
-                  border-radius: 8px;
-                  padding: 8px 12px;
-                  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                  min-width: 150px;
-                  position: relative;
-                ">
-                  <div style="
-                    background: #4F46E5;
-                    color: white;
-                    font-size: 12px;
-                    font-weight: bold;
-                    padding: 2px 6px;
-                    border-radius: 4px;
-                    margin-bottom: 4px;
-                    display: inline-block;
-                  ">
-                    ${index + 1}번째
-                  </div>
-                  <div style="
-                    font-weight: bold;
-                    color: #1F2937;
-                    font-size: 14px;
-                  ">
-                    ${location.title}
-                  </div>
-                  <div style="
-                    position: absolute;
-                    bottom: -8px;
-                    left: 20px;
-                    width: 0;
-                    height: 0;
-                    border-left: 8px solid transparent;
-                    border-right: 8px solid transparent;
-                    border-top: 8px solid #4F46E5;
-                  "></div>
-                </div>
-              `;
-
-              // 커스텀 오버레이 생성
-              const overlay = new window.kakao.maps.CustomOverlay({
-                content: content,
-                map: map,
-                position: coords,
-                yAnchor: 1.2
-              });
-
-              bounds.extend(coords);
-              validLocations++;
-            } else {
-              console.warn(`Geocoding failed for: ${address}, status: ${status}`);
+              // 검색 간 딜레이
+              await new Promise(resolve => setTimeout(resolve, 100));
+            } catch (error) {
+              console.error(`Error searching for "${searchTerm}":`, error);
             }
+          }
+          
+          if (!foundResult) {
+            console.warn(`All searches failed for location: ${location.title}`);
+          }
+          
+          processedCount++;
+          
+          // 모든 위치 처리 완료 확인
+          if (processedCount === locations.length) {
+            adjustMapView();
+          }
+        };
 
-            // 모든 위치 처리가 완료되면 지도 범위 조정
-            if (processedCount === locations.length) {
-              console.log(`Processing complete. Valid locations: ${validLocations}/${locations.length}`);
+        // 마커 생성 함수
+        const createMarkerFromResult = (result: any, location: any, index: number) => {
+          const coords = new window.kakao.maps.LatLng(result.y, result.x);
+          console.log(`Creating marker for ${location.title} at [${result.y}, ${result.x}]`);
+          
+          // 유효한 좌표 저장
+          validCoords.push(coords);
+          
+          // 마커 생성
+          new window.kakao.maps.Marker({
+            map: map,
+            position: coords
+          });
+
+          // 커스텀 오버레이 내용 (순서 번호와 장소명)
+          const orderInfo = location.order ? `${location.order}번째` : `${index + 1}번째`;
+          const content = `
+            <div style="
+              background: white;
+              border: 2px solid #4F46E5;
+              border-radius: 8px;
+              padding: 8px 12px;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+              min-width: 120px;
+              max-width: 180px;
+              position: relative;
+            ">
+              <div style="
+                background: #4F46E5;
+                color: white;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 2px 6px;
+                border-radius: 4px;
+                margin-bottom: 4px;
+                display: inline-block;
+              ">
+                ${orderInfo}
+              </div>
+              <div style="
+                font-weight: bold;
+                color: #1F2937;
+                font-size: 14px;
+              ">
+                ${location.title}
+              </div>
+              <div style="
+                position: absolute;
+                bottom: -8px;
+                left: 20px;
+                width: 0;
+                height: 0;
+                border-left: 8px solid transparent;
+                border-right: 8px solid transparent;
+                border-top: 8px solid #4F46E5;
+              "></div>
+            </div>
+          `;
+
+          // 커스텀 오버레이 생성
+          new window.kakao.maps.CustomOverlay({
+            content: content,
+            map: map,
+            position: coords,
+            yAnchor: 1.2
+          });
+
+          bounds.extend(coords);
+          validLocations++;
+        };
+
+        // 지도 뷰 조정 함수
+        const adjustMapView = () => {
+          console.log(`Processing complete. Valid locations: ${validLocations}/${locations.length}`);
+          
+          if (validLocations > 0) {
+            // 유효한 마커가 있는 경우 해당 지역으로 지도 중심 이동
+            if (validLocations === 1) {
+              // 단일 마커인 경우 해당 위치를 중심으로 설정
+              map.setCenter(validCoords[0]);
+              map.setLevel(6); // 적절한 줌 레벨
+              console.log('Map centered on single marker location');
+            } else {
+              // 여러 마커가 있는 경우 모든 마커를 포함하도록 범위 설정
+              console.log('Setting map bounds to include all markers');
+              map.setBounds(bounds, 60, 60, 60, 60); // 패딩 60px
               
-              if (validLocations > 1) {
-                // 패딩을 추가하여 마커들이 화면 가장자리에 붙지 않도록 함
-                // 상하좌우 80px 패딩으로 여유 공간 확보
-                map.setBounds(bounds, 80, 80, 80, 80);
-                
-                // 적절한 줌 레벨로 조정
-                setTimeout(() => {
-                  const currentLevel = map.getLevel();
-                  // 너무 가까우면 적당히 줌아웃
-                  if (currentLevel < 3) {
-                    map.setLevel(3);
-                  }
-                  // 너무 멀면 적당히 줌인
-                  else if (currentLevel > 12) {
-                    map.setLevel(12);
-                  }
-                }, 200);
-              } else if (validLocations === 1) {
-                // 단일 마커인 경우 적절한 줌 레벨 설정
-                map.setLevel(6);
-              } else {
-                // 마커가 없는 경우 기본 줌 레벨
-                map.setLevel(8);
-              }
-              
-              // 지도 크기 재조정
+              // 범위 설정 후 적절한 줌 레벨 조정
               setTimeout(() => {
-                map.relayout();
+                const currentLevel = map.getLevel();
+                console.log('Current zoom level after setBounds:', currentLevel);
+                
+                // 너무 가까우면 적당히 줌아웃
+                if (currentLevel < 2) {
+                  map.setLevel(3);
+                  console.log('Adjusted zoom level to 3 (was too close)');
+                }
+                // 너무 멀면 적당히 줌인
+                else if (currentLevel > 10) {
+                  map.setLevel(8);
+                  console.log('Adjusted zoom level to 8 (was too far)');
+                }
               }, 300);
             }
-          });
+          } else {
+            // 마커가 없는 경우에만 목적지 기본 좌표 사용
+            console.log('No valid markers found, using destination coordinates');
+            if (cityName) {
+              const destCoords = new window.kakao.maps.LatLng(centerLat, centerLng);
+              map.setCenter(destCoords);
+              map.setLevel(8);
+            }
+          }
+          
+          // 지도 크기 재조정
+          setTimeout(() => {
+            map.relayout();
+            console.log('Map relayout completed');
+          }, 500);
+        };
+
+        // 모든 위치에 대해 순차적으로 처리 (API 호출 제한 고려)
+        locations.forEach((location, index) => {
+          setTimeout(() => {
+            processLocation(location, index);
+          }, index * 200); // 200ms 간격으로 처리
         });
       } else {
         console.warn('Geocoding service not available or no locations to display');
-        // 지오코딩 서비스가 없어도 기본 지도는 표시
+        // 지오코딩 서비스가 없는 경우 목적지 기본 좌표로 설정
+        if (cityName) {
+          const destCoords = new window.kakao.maps.LatLng(centerLat, centerLng);
+          map.setCenter(destCoords);
+          map.setLevel(8);
+        }
         setTimeout(() => {
           map.relayout();
         }, 200);

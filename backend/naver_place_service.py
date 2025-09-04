@@ -87,6 +87,12 @@ class NaverPlaceService:
         # 현재 지역 정보를 클래스 변수로 저장 (주소 검증에서 사용)
         self._current_region = region
         
+        # 모호한 장소명 감지
+        if self._is_vague_location(location) or self._is_vague_location(title):
+            logger.warning(f"모호한 장소명 감지: title='{title}', location='{location}' - 구체적인 장소명이 필요합니다")
+            # 모호한 장소명인 경우 검색하지 않고 원본 그대로 반환 (부정확한 정보 방지)
+            return activity
+        
         # 장소명에서 키워드 추출
         search_keywords = [
             location,
@@ -393,6 +399,63 @@ class NaverPlaceService:
                     logger.info(f"✅ 올바른 행정구역: '{district}' ('{target_city}'에 존재)")
         
         return not found_invalid
+    
+    def _is_vague_location(self, location_text: str) -> bool:
+        """모호한 장소명인지 판단"""
+        if not location_text:
+            return True
+        
+        location_lower = location_text.lower().strip()
+        
+        # 모호한 표현들
+        vague_patterns = [
+            # 일반적인 모호한 표현
+            '해변', '해수욕장', '폭포', '공원', '시장', '식당', '카페', '박물관', '미술관',
+            '산', '강', '호수', '다리', '항구', '항', '역', '터미널', '광장', '거리',
+            
+            # 지역 + 일반명사 (구체적인 고유명사가 아닌 경우)
+            '시내', '중심가', '번화가', '구시가지', '신시가지', '해변가', '강변', '산기슭',
+            '동쪽', '서쪽', '남쪽', '북쪽', '근처', '주변', '일대', '지역',
+            
+            # 수식어가 포함된 모호한 표현
+            '유명한', '현지', '전통', '인기', '대표적인', '최고의', '추천', '맛있는',
+            '아름다운', '멋진', '좋은', '특별한', '독특한',
+            
+            # 범용적인 장소 표현
+            '관광지', '명소', '볼거리', '체험장', '전시관', '문화센터', '휴게소'
+        ]
+        
+        # 모호한 패턴이 포함되어 있으면서 구체적인 고유명사가 없는 경우
+        has_vague_pattern = any(pattern in location_lower for pattern in vague_patterns)
+        
+        if has_vague_pattern:
+            # 구체적인 고유명사가 포함되어 있는지 확인
+            # 한글 고유명사 패턴 (3글자 이상의 한글 + 특정 접미사)
+            specific_patterns = [
+                r'[가-힣]{2,}해수욕장',  # 경포해수욕장, 해운대해수욕장
+                r'[가-힣]{2,}해변',     # 경포해변, 광안리해변  
+                r'[가-힣]{2,}폭포',     # 천지연폭포, 정방폭포
+                r'[가-힣]{2,}공원',     # 남산공원, 올림픽공원
+                r'[가-힣]{2,}시장',     # 동대문시장, 남대문시장
+                r'[가-힣]{2,}박물관',   # 국립중앙박물관
+                r'[가-힣]{2,}미술관',   # 국립현대미술관
+                r'[가-힣]{2,}사',       # 불국사, 해인사
+                r'[가-힣]{2,}궁',       # 경복궁, 창덕궁
+                r'[가-힣]{2,}성',       # 수원화성, 남한산성
+                r'[가-힣]{2,}탑',       # 남산타워, 부산타워
+                r'[가-힣]{2,}다리',     # 광안대교, 한강대교
+                r'[가-힣]{2,}역',       # 서울역, 부산역
+                r'[가-힣]{2,}항',       # 부산항, 인천항
+            ]
+            
+            import re
+            has_specific_pattern = any(re.search(pattern, location_text) for pattern in specific_patterns)
+            
+            if not has_specific_pattern:
+                logger.warning(f"모호한 장소명 감지: '{location_text}' - 구체적인 고유명사가 필요합니다")
+                return True
+        
+        return False
     
     def _extract_place_name_from_title(self, title: str) -> str:
         """제목에서 장소명 추출"""

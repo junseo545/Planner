@@ -61,6 +61,7 @@ export interface TripFormData {
   budget: string; // 예산
   interests: string[]; // 관심사
   rooms: number; // 객실 수
+  transportation: string; // 교통수단
   
   // 기존 필드들 (날짜는 나중에 추가될 수 있음)
   start_date: string;

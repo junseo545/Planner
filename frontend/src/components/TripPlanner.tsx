@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Calendar, DollarSign, Bed, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Search, Calendar, Bed, ArrowRight, ArrowLeft, Car } from 'lucide-react';
 import axios from 'axios';
 import { TripPlan, TripPlannerProps, TripFormData } from '../types';
 
@@ -15,9 +15,56 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     budget: '보통',
     interests: [],
     rooms: 1,
+    transportation: '자동차',
     start_date: '',
     end_date: ''
   });
+
+  // 컴포넌트 마운트 시 저장된 폼 데이터와 단계 복원
+  useEffect(() => {
+    try {
+      const savedFormData = sessionStorage.getItem('tripPlannerFormData');
+      const savedCurrentStep = sessionStorage.getItem('tripPlannerCurrentStep');
+      
+      if (savedFormData) {
+        const parsedFormData = JSON.parse(savedFormData);
+        setFormData(parsedFormData);
+        setInputValue(parsedFormData.customRegion || '');
+        console.log('Restored form data from session storage');
+      }
+      
+      if (savedCurrentStep) {
+        const step = parseInt(savedCurrentStep, 10);
+        if (step >= 1 && step <= 6) {
+          setCurrentStep(step);
+          console.log(`Restored current step: ${step}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error restoring trip planner state:', error);
+      // 오류 발생 시 저장된 데이터 삭제
+      sessionStorage.removeItem('tripPlannerFormData');
+      sessionStorage.removeItem('tripPlannerCurrentStep');
+    }
+  }, []);
+
+  // 폼 데이터가 변경될 때마다 저장
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('tripPlannerFormData', JSON.stringify(formData));
+    } catch (error) {
+      console.error('Error saving form data:', error);
+    }
+  }, [formData]);
+
+  // 현재 단계가 변경될 때마다 저장
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('tripPlannerCurrentStep', currentStep.toString());
+    } catch (error) {
+      console.error('Error saving current step:', error);
+    }
+  }, [currentStep]);
 
   // 자동완성을 위한 상태
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -35,7 +82,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
   const companionTypeOptions = ['연인', '친구', '가족', '혼자', '동료', '기타'];
 
   const travelStyleOptions = [
-    '자연 관광', '문화 체험', '맛집 탐방', '쇼핑', '액티비티', '휴양', '역사 탐방'
+    '자연 관광', '문화 체험', '쇼핑', '액티비티', '휴양', '역사 탐방'
   ];
 
   const travelPaceOptions = [
@@ -53,6 +100,23 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     ).slice(0, 10); // 최대 10개만 표시
   };
 
+  // 날짜 유효성 검사 함수
+  const getMaxEndDate = (startDate: string): string => {
+    if (!startDate) return '';
+    const start = new Date(startDate);
+    const maxEnd = new Date(start);
+    maxEnd.setDate(start.getDate() + 4); // 최대 4박 5일
+    return maxEnd.toISOString().split('T')[0];
+  };
+
+  const getMinEndDate = (startDate: string): string => {
+    if (!startDate) return '';
+    const start = new Date(startDate);
+    const minEnd = new Date(start);
+    minEnd.setDate(start.getDate() + 1); // 최소 1박 2일
+    return minEnd.toISOString().split('T')[0];
+  };
+
   // 입력값 변경 처리
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
     const { name, value } = e.target;
@@ -62,11 +126,17 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       const filtered = filterSuggestions(value);
       setFilteredSuggestions(filtered);
       setShowSuggestions(filtered.length > 0);
+    } else if (name === 'start_date') {
+      setFormData((prev: TripFormData) => ({
+        ...prev,
+        start_date: value,
+        end_date: '' // 시작일이 변경되면 종료일 초기화
+      }));
     } else {
-    setFormData((prev: TripFormData) => ({
-      ...prev,
-      [name]: name === 'guests' || name === 'rooms' ? parseInt(value) : value
-    }));
+      setFormData((prev: TripFormData) => ({
+        ...prev,
+        [name]: name === 'guests' || name === 'rooms' ? parseInt(value) : value
+      }));
     }
   };
 
@@ -157,6 +227,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
         budget: formData.budget,
         interests: formData.interests,
         rooms: formData.rooms,
+        transportation: formData.transportation,
         start_date: formData.start_date,
         end_date: formData.end_date
       };
@@ -170,6 +241,12 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       console.log('API URL:', apiUrl);
       
       const response = await axios.post<TripPlan>(apiUrl, submitData);
+      
+      // 여행 계획 생성 성공 시 플래너 데이터 삭제
+      sessionStorage.removeItem('tripPlannerFormData');
+      sessionStorage.removeItem('tripPlannerCurrentStep');
+      console.log('Cleared trip planner data after successful generation');
+      
       onTripGenerated(response.data);
     } catch (error: any) {
       console.error('여행 계획 생성 오류:', error);
@@ -342,24 +419,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       <div className="additional-info-form">
         <div className="form-section">
           <label className="form-label">
-            <DollarSign />
-            예산
-          </label>
-          <select
-            name="budget"
-            value={formData.budget}
-            onChange={handleInputChange}
-            className="form-select"
-          >
-            <option value="저예산">저예산</option>
-            <option value="보통">보통</option>
-            <option value="고급">고급</option>
-            <option value="럭셔리">럭셔리</option>
-          </select>
-        </div>
-
-        <div className="form-section">
-          <label className="form-label">
             <Bed />
             객실 수
           </label>
@@ -377,6 +436,26 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
         <div className="form-section">
           <label className="form-label">
+            <Car />
+            교통수단
+          </label>
+          <select
+            name="transportation"
+            value={formData.transportation}
+            onChange={handleInputChange}
+            className="form-select"
+          >
+            <option value="자동차">자동차</option>
+            <option value="대중교통">대중교통</option>
+            <option value="기차">기차</option>
+            <option value="비행기">비행기</option>
+            <option value="렌터카">렌터카</option>
+            <option value="도보/자전거">도보/자전거</option>
+          </select>
+        </div>
+
+        <div className="form-section">
+          <label className="form-label">
             <Calendar />
             여행 시작일
           </label>
@@ -386,13 +465,14 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             value={formData.start_date}
             onChange={handleInputChange}
             className="form-input"
+            min={new Date().toISOString().split('T')[0]}
           />
         </div>
 
         <div className="form-section">
           <label className="form-label">
             <Calendar />
-            여행 종료일
+            여행 종료일 <span className="date-hint">(최대 4박 5일)</span>
           </label>
           <input
             type="date"
@@ -400,6 +480,9 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             value={formData.end_date}
             onChange={handleInputChange}
             className="form-input"
+            min={getMinEndDate(formData.start_date)}
+            max={getMaxEndDate(formData.start_date)}
+            disabled={!formData.start_date}
           />
         </div>
       </div>
