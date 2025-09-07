@@ -7,25 +7,21 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
-class NaverPlaceService:
-    """네이버 검색 API와 지오코딩 API를 사용한 실제 장소 정보 서비스"""
+class KakaoPlaceService:
+    """카카오 로컬 API를 사용한 실제 장소 정보 서비스"""
     
     def __init__(self):
-        self.search_client_id = os.getenv('NAVER_CLIENT_ID')
-        self.search_client_secret = os.getenv('NAVER_CLIENT_SECRET')
-        self.geo_client_id = os.getenv('NAVER_CLIENT_ID')  # 같은 키 사용
-        self.geo_client_secret = os.getenv('NAVER_CLIENT_SECRET')
+        self.api_key = os.getenv('KAKAO_API_KEY')
+        self.search_url = 'https://dapi.kakao.com/v2/local/search/keyword.json'
+        self.category_url = 'https://dapi.kakao.com/v2/local/search/category.json'
         
-        self.search_url = 'https://openapi.naver.com/v1/search/local.json'
-        self.geo_url = 'https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode'
-        
-        if not self.search_client_id or not self.search_client_secret:
-            logger.warning("네이버 검색 API 키가 설정되지 않았습니다.")
+        if not self.api_key:
+            logger.warning("카카오 로컬 API 키가 설정되지 않았습니다.")
     
     def search_places(self, query: str, region: str = "", display: int = 3) -> List[Dict[str, Any]]:
         """특정 지역에서 장소를 검색"""
-        if not self.search_client_id or not self.search_client_secret:
-            logger.warning("네이버 API 키가 없어 장소 검색을 수행할 수 없습니다.")
+        if not self.api_key:
+            logger.warning("카카오 API 키가 없어 장소 검색을 수행할 수 없습니다.")
             return []
         
         try:
@@ -33,15 +29,14 @@ class NaverPlaceService:
             search_query = f"{region} {query}" if region else query
             
             headers = {
-                'X-Naver-Client-Id': self.search_client_id,
-                'X-Naver-Client-Secret': self.search_client_secret
+                'Authorization': f'KakaoAK {self.api_key}'
             }
             
             params = {
                 'query': search_query,
-                'display': display,
-                'start': 1,
-                'sort': 'comment'  # 리뷰 많은 순으로 정렬 (더 신뢰할 만한 결과)
+                'size': display,
+                'page': 1,
+                'sort': 'accuracy'  # 정확도순 정렬
             }
             
             response = requests.get(self.search_url, headers=headers, params=params)
@@ -50,16 +45,17 @@ class NaverPlaceService:
             data = response.json()
             places = []
             
-            for item in data.get('items', []):
+            for item in data.get('documents', []):
                 place_info = {
-                    'name': self._clean_html_tags(item.get('title', '')),
-                    'address': item.get('roadAddress', '') or item.get('address', ''),
-                    'category': item.get('category', ''),
-                    'telephone': item.get('telephone', ''),
-                    'description': item.get('description', ''),
-                    'link': item.get('link', ''),
-                    'mapx': item.get('mapx', ''),
-                    'mapy': item.get('mapy', '')
+                    'name': item.get('place_name', ''),
+                    'address': item.get('address_name', ''),
+                    'road_address': item.get('road_address_name', ''),
+                    'category': item.get('category_name', ''),
+                    'telephone': item.get('phone', ''),
+                    'place_url': item.get('place_url', ''),
+                    'x': item.get('x', ''),  # 경도
+                    'y': item.get('y', ''),  # 위도
+                    'id': item.get('id', '')
                 }
                 places.append(place_info)
             
@@ -75,7 +71,7 @@ class NaverPlaceService:
         places = self.search_places(place_name, region, display=1)
         
         if places:
-            return places[0].get('address', '')
+            return places[0].get('road_address', '') or places[0].get('address', '')
         
         return None
     
@@ -123,15 +119,17 @@ class NaverPlaceService:
                         # 실제 장소 정보 추가
                         enhanced_activity.update({
                             'real_place_name': best_place['name'],
-                            'real_address': best_place['address'],
+                            'real_address': best_place['road_address'] or best_place['address'],
                             'place_category': best_place['category'],
                             'place_telephone': best_place['telephone'],
-                            'place_link': best_place['link']
+                            'place_url': best_place['place_url'],
+                            'latitude': best_place['y'],
+                            'longitude': best_place['x']
                         })
                         
                         # 기존 location을 더 구체적으로 업데이트
-                        if best_place['address']:
-                            enhanced_activity['location'] = best_place['address']
+                        if best_place['road_address'] or best_place['address']:
+                            enhanced_activity['location'] = best_place['road_address'] or best_place['address']
                         
                         logger.info(f"실제 장소 정보 추가: {keyword} -> {best_place['name']} ({best_place['address']})")
                         return enhanced_activity
@@ -161,11 +159,6 @@ class NaverPlaceService:
             enhanced_itinerary.append(enhanced_day)
         
         return enhanced_itinerary
-    
-    def _clean_html_tags(self, text: str) -> str:
-        """HTML 태그 제거"""
-        import re
-        return re.sub(r'<[^>]+>', '', text)
     
     def _find_most_relevant_place(self, keyword: str, places: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """검색 결과에서 가장 관련성이 높은 장소 찾기 (매우 엄격한 기준)"""

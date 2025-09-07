@@ -7,6 +7,7 @@
 # 필요한 라이브러리들을 가져옵니다 (import)
 from fastapi import FastAPI, HTTPException  # FastAPI: 웹 서버 프레임워크, HTTPException: 에러 처리용
 from fastapi.middleware.cors import CORSMiddleware  # CORS: 웹 브라우저의 보안 정책 관련
+from fastapi.responses import StreamingResponse  # SSE를 위한 StreamingResponse
 from pydantic import BaseModel  # 데이터 검증을 위한 라이브러리
 from typing import List, Optional  # 타입 힌트를 위한 라이브러리
 import openai  # OpenAI API 사용을 위한 라이브러리
@@ -18,29 +19,25 @@ from datetime import datetime, timedelta  # 날짜와 시간 처리용
 import urllib.parse  # URL 인코딩용
 import requests  # HTTP 요청을 위한 라이브러리
 import re  # 정규표현식을 위한 라이브러리
-from location_validator import validate_trip_locations, PlaceValidationResult
-from naver_geocoding import NaverGeocodingService
-from naver_place_service import NaverPlaceService
+import asyncio  # 비동기 처리를 위한 라이브러리
+from kakao_location_validator import KakaoLocationValidator, PlaceValidationResult
+from kakao_geocoding import KakaoGeocodingService
+from kakao_place_service import KakaoPlaceService
 
 load_dotenv()
 
-# 네이버 API 인증
-CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
-CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
+# 카카오 API 인증
+KAKAO_API_KEY = os.getenv("KAKAO_API_KEY")
 
 # ========================================
-# 네이버 API 검색 서비스 클래스
+# 카카오 로컬 API 서비스 클래스
 # ========================================
-class NaverSearchService:
-    """네이버 API를 활용한 검색 서비스"""
+class KakaoLocalService:
+    """카카오 로컬 API를 사용하여 장소 검색 및 검증을 수행하는 서비스"""
     
-    def __init__(self):
-        self.client_id = CLIENT_ID
-        self.client_secret = CLIENT_SECRET
-        self.headers = {
-            "X-Naver-Client-Id": self.client_id,
-            "X-Naver-Client-Secret": self.client_secret
-        }
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or KAKAO_API_KEY
+        self.base_url = "https://dapi.kakao.com/v2/local/search/keyword.json"
     
     def search_events(self, destination: str, start_date: str, end_date: str) -> List[dict]:
         """목적지와 날짜에 맞는 축제/행사 정보를 검색하는 메서드"""
@@ -700,6 +697,57 @@ class KakaoLocalService:
             logger.error(f"카카오 API 요청 실패: {str(e)}")
             return {'found': False, 'error': str(e), 'query': query}
             
+    def _extract_place_name_from_title(self, title: str) -> list:
+        """제목에서 실제 장소명을 추출합니다."""
+        import re
+        
+        # 불필요한 단어들 제거
+        remove_words = [
+            '방문', '관람', '투어', '체험', '구경', '산책', '둘러보기', '탐방', '견학',
+            '가기', '보기', '하기', '즐기기', '걷기', '오르기', '내려가기', '올라가기',
+            '에서', '까지', '으로', '를', '을', '의', '에', '와', '과', '도', '만',
+            '점심', '저녁', '아침', '식사', '먹기', '맛보기', '시식',
+            '휴식', '쉬기', '잠시', '잠깐'
+        ]
+        
+        # 장소명 후보들
+        candidates = []
+        
+        # 1. 원본 제목
+        candidates.append(title.strip())
+        
+        # 2. 불필요한 단어들 제거
+        cleaned_title = title
+        for word in remove_words:
+            cleaned_title = cleaned_title.replace(word, '').strip()
+        if cleaned_title and cleaned_title != title:
+            candidates.append(cleaned_title)
+        
+        # 3. 괄호 안 내용 제거
+        no_brackets = re.sub(r'\([^)]*\)', '', title).strip()
+        if no_brackets and no_brackets != title:
+            candidates.append(no_brackets)
+        
+        # 4. 첫 번째 단어만 (보통 장소명이 앞에 옴)
+        first_word = title.split()[0] if title.split() else ""
+        if first_word and len(first_word) > 1:
+            candidates.append(first_word)
+        
+        # 5. 마지막 단어 제거 (보통 동작 단어)
+        words = title.split()
+        if len(words) > 1:
+            without_last = ' '.join(words[:-1])
+            candidates.append(without_last)
+        
+        # 중복 제거 및 빈 문자열 제거
+        unique_candidates = []
+        for candidate in candidates:
+            candidate = candidate.strip()
+            if candidate and candidate not in unique_candidates and len(candidate) > 1:
+                unique_candidates.append(candidate)
+        
+        return unique_candidates
+
     def verify_and_enrich_location(self, activity: dict, region: str = None) -> dict:
         """
         활동 정보의 장소를 검증하고 정확한 정보로 보강합니다.
@@ -714,13 +762,42 @@ class KakaoLocalService:
         title = activity.get('title', '')
         location = activity.get('location', '')
         
-        # 장소명으로 검색 시도
-        search_result = self.search_place(title, region)
+        logger.info(f"🔍 장소 검증 시작: '{title}' (location: '{location}')")
         
-        if not search_result or not search_result.get('found'):
-            # 제목으로 찾지 못하면 location으로 재시도
-            if location and location != title:
-                search_result = self.search_place(location, region)
+        # 검색 키워드 우선순위 생성
+        search_keywords = []
+        
+        # 1. location이 있으면 우선 사용
+        if location and location.strip():
+            search_keywords.append(location.strip())
+        
+        # 2. title에서 장소명 추출
+        extracted_places = self._extract_place_name_from_title(title)
+        search_keywords.extend(extracted_places)
+        
+        # 3. 원본 title도 포함 (마지막 순위)
+        if title not in search_keywords:
+            search_keywords.append(title)
+        
+        logger.info(f"🔍 검색 키워드 목록: {search_keywords}")
+        
+        # 키워드별로 순차 검색
+        search_result = None
+        successful_keyword = None
+        
+        for keyword in search_keywords:
+            if not keyword or len(keyword.strip()) < 2:
+                continue
+                
+            logger.info(f"🔍 키워드로 검색 중: '{keyword}'")
+            search_result = self.search_place(keyword, region)
+            
+            if search_result and search_result.get('found'):
+                successful_keyword = keyword
+                logger.info(f"✅ 검색 성공: '{keyword}' -> {search_result.get('name')}")
+                break
+            else:
+                logger.info(f"❌ 검색 실패: '{keyword}'")
         
         # 검증된 정보로 활동 정보 업데이트
         if search_result and search_result.get('found'):
@@ -736,11 +813,18 @@ class KakaoLocalService:
             # 정확한 장소명으로 업데이트
             if search_result.get('name'):
                 activity['verified_name'] = search_result.get('name')
+                activity['location'] = search_result.get('road_address') or search_result.get('address') or activity['location']
                 
-            logger.info(f"장소 검증 성공: {title} -> {search_result.get('name')}")
+            logger.info(f"🎉 장소 검증 완료: '{title}' -> '{search_result.get('name')}' (키워드: '{successful_keyword}')")
+            logger.info(f"   주소: {activity['real_address']}")
+            logger.info(f"   카테고리: {activity['place_category']}")
         else:
             activity['verified'] = False
-            logger.warning(f"장소 검증 실패: {title}")
+            # 검증 실패한 경우 가짜 주소 표시 방지
+            activity['location'] = f"⚠️ {activity.get('location', '')} (검증되지 않은 주소)"
+            activity['real_address'] = "검증되지 않은 주소입니다"
+            logger.warning(f"⚠️ 장소 검증 실패: '{title}' - 모든 키워드로 검색했지만 찾을 수 없습니다")
+            logger.warning(f"   시도한 키워드: {search_keywords}")
             
         return activity
 
@@ -788,6 +872,10 @@ async def verify_and_enrich_trip_data(trip_data: dict, kakao_service: KakaoLocal
     if failed_activities:
         logger.info(f"검증 실패한 활동 {len(failed_activities)}개를 재생성합니다...")
         trip_data = await regenerate_failed_activities(trip_data, failed_activities, destination)
+        
+        # 재생성 후 중복 체크 및 제거
+        logger.info("재생성 후 중복 장소 재검사를 시작합니다...")
+        trip_data = await remove_duplicate_locations(trip_data, destination)
     
     return trip_data
 
@@ -806,28 +894,49 @@ async def regenerate_failed_activities(trip_data: dict, failed_activities: list,
             day_activities = trip_data["itinerary"][day_idx]["activities"]
             other_activities = [act for i, act in enumerate(day_activities) if i != activity_idx]
             
+            # 전체 여행 일정에서 이미 사용된 모든 장소들 수집 (중복 방지)
+            all_used_locations = []
+            for day_data in trip_data.get("itinerary", []):
+                for activity in day_data.get("activities", []):
+                    if activity.get('title') and activity.get('location'):
+                        all_used_locations.append({
+                            "title": activity.get('title'),
+                            "location": activity.get('location'),
+                            "day": day_data.get('day')
+                        })
+            
             # 재생성 프롬프트
             regeneration_prompt = f"""
-다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 실제 존재하는 구체적인 장소로 대체해주세요.
+검증에 실패한 "{original.get('title', '')}" 활동을 {destination} 지역의 **실제 존재하는 유명한 관광지**로 대체해주세요.
+
+🚨 **중복 절대 금지**: 아래 이미 사용된 장소들과 절대 겹치면 안 됩니다:
+{json.dumps(all_used_locations, ensure_ascii=False, indent=2)}
 
 현재 {day_num}일차 다른 활동들:
 {json.dumps(other_activities, ensure_ascii=False, indent=2)}
 
-⚠️ **필수 요구사항 - 구체적인 장소명 사용**:
-1. {destination} 지역에 실제로 존재하는 관광지/맛집/체험활동으로 대체
-2. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
-3. 앞에 일차에 있는 활동과 겹치지 않는 장소 선택
-4. **반드시 구체적인 고유명사를 사용하세요**:
-   ❌ 잘못된 예: "해변 산책", "시장 구경", "공원 방문"
-   ✅ 올바른 예: "경포해변 산책", "자갈치시장 구경", "남산공원 방문"
-5. location 필드는 구체적인 주소나 고유명사 포함 필수
-6. JSON 형식으로 단일 activity 객체만 반환
+🚨 **절대 지켜야 할 규칙**:
+1. **위에 나열된 이미 사용된 장소들과 절대 겹치면 안 됩니다** - 최우선 규칙!
+2. **실제 존재하는 유명한 관광지만 사용** - 가짜 장소 절대 금지
+3. {destination} 지역의 대표적인 랜드마크나 유명 관광지만 선택
+4. 확실하지 않은 주소나 장소는 절대 사용하지 마세요
+5. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
+6. **반드시 구체적인 고유명사를 사용하세요**:
+   ❌ 잘못된 예: "해변 산책", "시장 구경", "공원 방문", "○○동 762번지"
+   ✅ 올바른 예: "해운대해수욕장", "자갈치시장", "남산공원"
+7. location 필드는 유명한 관광지명이나 정확한 도로명주소만 사용
+8. JSON 형식으로 단일 activity 객체만 반환
+
+**{destination} 지역 유명 관광지 예시 참고**:
+- 부산: 해운대해수욕장, 광안리해변, 자갈치시장, 감천문화마을, 태종대
+- 서울: 경복궁, 남산타워, 명동, 인사동, 한강공원
+- 제주: 성산일출봉, 한라산, 천지연폭포, 협재해수욕장
 
 JSON 형식:
 {{
     "time": "시간",
-    "title": "구체적인 장소명을 포함한 활동명 (예: 경포해변 산책)",
-    "location": "정확한 주소 또는 구체적인 장소명 (예: 강릉시 창해로 365, 경포해변)",
+    "title": "유명 관광지명을 포함한 활동명 (예: 해운대해수욕장 산책)",
+    "location": "정확한 관광지명 또는 도로명주소 (예: 해운대해수욕장, 부산광역시 해운대구 해운대해변로)",
     "description": "활동 설명",
     "duration": "소요시간"
 }}
@@ -835,13 +944,13 @@ JSON 형식:
             
             # OpenAI API 호출
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "당신은 여행 전문가입니다. 실제 존재하는 구체적인 고유명사 장소만 추천해주세요. 모호한 표현(해변, 시장, 공원 등) 대신 정확한 장소명(경포해변, 자갈치시장, 남산공원 등)을 사용하세요."},
+                    {"role": "system", "content": "당신은 한국 관광 전문가입니다. 검증에 실패한 가짜 장소를 실제 존재하는 유명한 관광지로 교체해주세요. 🚨 최우선 규칙: 이미 사용된 장소들과 절대 중복되면 안 됩니다! 절대 가짜 주소나 존재하지 않는 장소를 만들어내지 마세요. 확실하지 않은 장소는 사용하지 말고 대표적인 유명 관광지만 선택하세요."},
                     {"role": "user", "content": regeneration_prompt}
                 ],
                 max_tokens=500,
-                temperature=0.7
+                temperature=0.3  # 더 일관된 결과를 위해 온도 감소
             )
             
             content = response.choices[0].message.content.strip()
@@ -856,6 +965,22 @@ JSON 형식:
                 # 새로운 활동으로 교체
                 trip_data["itinerary"][day_idx]["activities"][activity_idx] = new_activity
                 logger.info(f"{day_num}일차 활동 재생성 완료: {original.get('title')} -> {new_activity.get('title')}")
+                
+                # 재생성된 활동이 다른 날짜와 중복되는지 즉시 체크
+                new_title = new_activity.get('title', '').lower()
+                new_location = new_activity.get('location', '').lower()
+                
+                for check_day_idx, check_day in enumerate(trip_data.get("itinerary", [])):
+                    if check_day_idx == day_idx:  # 같은 날은 건너뛰기
+                        continue
+                    for check_activity in check_day.get("activities", []):
+                        check_title = check_activity.get('title', '').lower()
+                        check_location = check_activity.get('location', '').lower()
+                        
+                        if (new_title and check_title and new_title in check_title) or \
+                           (new_location and check_location and new_location in check_location):
+                            logger.warning(f"🚨 재생성된 활동이 중복 의심: {day_num}일차 '{new_activity.get('title')}' vs {check_day.get('day')}일차 '{check_activity.get('title')}'")
+                            
             else:
                 logger.error(f"{day_num}일차 활동 재생성 실패: JSON 파싱 오류")
                 
@@ -883,8 +1008,82 @@ def _extract_location_keywords(place_name: str, location_name: str) -> list:
         # 주요 장소 키워드 추출
         location_keywords = _extract_major_location_keywords(text)
         keywords.update(location_keywords)
+        
+        # 핵심 장소명 추출 (더 정교한 추출)
+        core_keywords = _extract_core_location_name(text)
+        keywords.update(core_keywords)
     
     return list(filter(None, keywords))
+
+def _extract_core_location_name(text: str) -> set:
+    """텍스트에서 핵심 장소명을 추출합니다."""
+    import re
+    keywords = set()
+    
+    # 텍스트 정리
+    text = text.lower().strip()
+    
+    # 1. 핵심 지명 패턴 추출
+    core_patterns = [
+        r'([가-힣]{2,}해수욕장|[가-힣]{2,}해변)',  # 해변/해수욕장
+        r'([가-힣]{2,}시장)',                      # 시장
+        r'([가-힣]{2,}궁|[가-힣]{2,}궁궐)',        # 궁궐
+        r'([가-힣]{2,}사|[가-힣]{2,}절)',          # 사찰
+        r'([가-힣]{2,}타워|[가-힣]{2,}탑)',        # 타워/탑
+        r'([가-힣]{2,}공원)',                      # 공원
+        r'([가-힣]{2,}박물관)',                    # 박물관
+        r'([가-힣]{2,}미술관)',                    # 미술관
+        r'([가-힣]{2,}폭포)',                      # 폭포
+        r'([가-힣]{2,}산)',                        # 산
+        r'([가-힣]{2,}봉)',                        # 봉우리
+        r'([가-힣]{2,}다리)',                      # 다리
+        r'([가-힣]{2,}항|[가-힣]{2,}포구)',        # 항구/포구
+        r'([가-힣]{2,}마을)',                      # 마을
+        r'([가-힣]{2,}거리|[가-힣]{2,}길)',        # 거리/길
+        r'([가-힣]{2,}동)',                        # 동네
+        r'([가-힣]{2,}구)',                        # 구
+        r'([가-힣]{2,}섬|[가-힣]{2,}도)',          # 섬/도
+    ]
+    
+    for pattern in core_patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            keywords.add(match)
+    
+    # 2. 복합 지명에서 핵심 부분 추출
+    # 예: "해운대해수욕장 산책" → "해운대", "해운대해수욕장"
+    compound_patterns = [
+        r'([가-힣]{2,})(해수욕장|해변|시장|궁|사|탑|타워|공원|박물관|미술관)',
+        r'([가-힣]{2,})(문화마을|관광지|전망대|케이블카)',
+    ]
+    
+    for pattern in compound_patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            if len(match) == 2:  # (지명, 시설명) 튜플
+                keywords.add(match[0])  # 지명 부분
+                keywords.add(match[0] + match[1])  # 전체 이름
+    
+    # 3. 유명 관광지의 별칭/축약형 처리
+    aliases = {
+        '해운대': '해운대해수욕장',
+        '광안리': '광안리해수욕장',
+        '경포대': '경포해변',
+        '남산': '남산타워',
+        '자갈치': '자갈치시장',
+        '동대문': '동대문디자인플라자',
+        '명동': '명동거리',
+        '홍대': '홍대거리',
+        '강남': '강남역',
+        '이태원': '이태원거리',
+    }
+    
+    for alias, full_name in aliases.items():
+        if alias in text:
+            keywords.add(alias)
+            keywords.add(full_name)
+    
+    return keywords
 
 def _extract_major_location_keywords(text: str) -> set:
     """텍스트에서 주요 장소 키워드를 추출합니다."""
@@ -922,11 +1121,53 @@ def _extract_major_location_keywords(text: str) -> set:
     
     # 특별한 관광지 조합 처리 (연결된 관광지들)
     special_combinations = {
+        # 여수 관련
         '해상케이블카': ['오동도', '해상케이블카', '여수해상케이블카'],
         '오동도': ['오동도', '해상케이블카', '여수해상케이블카'],
+        
+        # 서울 타워 관련
         '남산타워': ['남산타워', 'n서울타워', '서울타워'],
         'n서울타워': ['남산타워', 'n서울타워', '서울타워'],
         '서울타워': ['남산타워', 'n서울타워', '서울타워'],
+        
+        # 부산 해변 관련
+        '해운대': ['해운대', '해운대해수욕장', '해운대해변'],
+        '해운대해수욕장': ['해운대', '해운대해수욕장', '해운대해변'],
+        '해운대해변': ['해운대', '해운대해수욕장', '해운대해변'],
+        '광안리': ['광안리', '광안리해수욕장', '광안리해변'],
+        '광안리해수욕장': ['광안리', '광안리해수욕장', '광안리해변'],
+        
+        # 부산 관광지 관련
+        '자갈치시장': ['자갈치시장', '자갈치'],
+        '감천문화마을': ['감천문화마을', '감천마을'],
+        '태종대': ['태종대', '태종대유원지'],
+        
+        # 제주 관련
+        '성산일출봉': ['성산일출봉', '성산봉'],
+        '한라산': ['한라산', '백록담'],
+        '천지연폭포': ['천지연폭포', '천지연'],
+        
+        # 경주 관련
+        '불국사': ['불국사', '석굴암'],
+        '석굴암': ['불국사', '석굴암'],
+        
+        # 강릉 관련
+        '경포해변': ['경포해변', '경포해수욕장', '경포대'],
+        '경포해수욕장': ['경포해변', '경포해수욕장', '경포대'],
+        '경포대': ['경포해변', '경포해수욕장', '경포대'],
+        
+        # 서울 궁궐 관련
+        '경복궁': ['경복궁', '광화문'],
+        '창덕궁': ['창덕궁', '비원'],
+        
+        # 인사동/명동 관련
+        '인사동': ['인사동', '인사동거리'],
+        '명동': ['명동', '명동거리', '명동성당'],
+        
+        # 기타 유명 관광지
+        '롯데타워': ['롯데타워', '롯데월드타워', '서울스카이'],
+        '63빌딩': ['63빌딩', '63스카이아트'],
+        '동대문': ['동대문', '동대문디자인플라자', 'ddp'],
     }
     
     text_lower = text.lower()
@@ -937,7 +1178,7 @@ def _extract_major_location_keywords(text: str) -> set:
     return keywords
 
 def _is_similar_location(keyword1: str, keyword2: str) -> bool:
-    """두 장소 키워드가 유사한지 판단합니다."""
+    """두 장소 키워드가 유사한지 판단합니다 (더 엄격한 중복 검사)."""
     if not keyword1 or not keyword2:
         return False
     
@@ -945,35 +1186,130 @@ def _is_similar_location(keyword1: str, keyword2: str) -> bool:
     if keyword1 == keyword2:
         return True
     
-    # 한쪽이 다른 쪽을 포함하는 경우 (길이가 3글자 이상일 때만)
-    if len(keyword1) >= 3 and len(keyword2) >= 3:
+    # 한쪽이 다른 쪽을 포함하는 경우 (더 엄격하게 - 2글자 이상부터)
+    if len(keyword1) >= 2 and len(keyword2) >= 2:
         if keyword1 in keyword2 or keyword2 in keyword1:
             return True
     
-    # 공통 부분이 70% 이상인 경우
-    if len(keyword1) >= 4 and len(keyword2) >= 4:
+    # 핵심 지명이 같은지 확인 (예: "해운대해수욕장"과 "해운대카페" - 둘 다 해운대 지역)
+    core_locations = _extract_core_location_parts(keyword1, keyword2)
+    if core_locations and len(core_locations) > 0:
+        return True
+    
+    # 공통 부분이 60% 이상인 경우 (더 엄격하게)
+    if len(keyword1) >= 3 and len(keyword2) >= 3:
         common_chars = set(keyword1) & set(keyword2)
         similarity = len(common_chars) / max(len(set(keyword1)), len(set(keyword2)))
-        if similarity >= 0.7:
+        if similarity >= 0.6:
+            return True
+    
+    # 유명 관광지의 다양한 표현 방식 체크
+    if _is_same_tourist_spot(keyword1, keyword2):
+        return True
+    
+    return False
+
+def _extract_core_location_parts(keyword1: str, keyword2: str) -> set:
+    """두 키워드에서 공통된 핵심 지역명을 추출합니다."""
+    import re
+    
+    # 핵심 지역명 패턴
+    location_patterns = [
+        r'([가-힣]{2,})(해수욕장|해변|시장|궁|사|탑|타워|공원|박물관|미술관|폭포|산|봉|다리|항|마을|거리|동|구|섬|도)',
+        r'([가-힣]{2,})(문화마을|관광지|전망대|케이블카|아쿠아리움|테마파크)',
+    ]
+    
+    cores1 = set()
+    cores2 = set()
+    
+    for pattern in location_patterns:
+        # keyword1에서 핵심 지역명 추출
+        matches1 = re.findall(pattern, keyword1)
+        for match in matches1:
+            if len(match) == 2:
+                cores1.add(match[0])  # 지역명 부분만
+        
+        # keyword2에서 핵심 지역명 추출
+        matches2 = re.findall(pattern, keyword2)
+        for match in matches2:
+            if len(match) == 2:
+                cores2.add(match[0])  # 지역명 부분만
+    
+    # 공통 핵심 지역명 반환
+    return cores1 & cores2
+
+def _is_same_tourist_spot(keyword1: str, keyword2: str) -> bool:
+    """같은 관광지의 다른 표현인지 확인합니다."""
+    # 같은 관광지의 다양한 표현들
+    same_spots = [
+        # 서울
+        {'남산타워', 'n서울타워', '서울타워', '남산'},
+        {'경복궁', '경복궁궁궐', '경복궁앞'},
+        {'창덕궁', '창덕궁궁궐', '비원'},
+        {'명동', '명동거리', '명동쇼핑'},
+        {'홍대', '홍대거리', '홍익대학교앞'},
+        {'이태원', '이태원거리', '이태원역'},
+        {'강남', '강남역', '강남구'},
+        {'동대문', '동대문디자인플라자', 'ddp'},
+        {'인사동', '인사동거리', '인사동문화거리'},
+        
+        # 부산
+        {'해운대', '해운대해수욕장', '해운대해변', '해운대비치'},
+        {'광안리', '광안리해수욕장', '광안리해변', '광안리비치'},
+        {'자갈치시장', '자갈치', '자갈치수산시장'},
+        {'감천문화마을', '감천마을', '감천색깔마을'},
+        {'태종대', '태종대유원지', '태종대공원'},
+        {'부산타워', '부산타워전망대', '용두산공원타워'},
+        {'국제시장', '부산국제시장', '국제시장거리'},
+        
+        # 제주
+        {'성산일출봉', '성산봉', '일출봉'},
+        {'한라산', '백록담', '한라산백록담'},
+        {'천지연폭포', '천지연', '천지연계곡'},
+        {'협재해수욕장', '협재해변', '협재비치'},
+        {'우도', '우도섬', '소가섬'},
+        
+        # 강릉
+        {'경포해변', '경포해수욕장', '경포대', '경포대해변'},
+        {'정동진', '정동진해변', '정동진역'},
+        {'오죽헌', '율곡이이생가', '신사임당생가'},
+        
+        # 여수
+        {'오동도', '동백섬', '오동도공원'},
+        {'여수해상케이블카', '해상케이블카', '돌산케이블카'},
+        {'여수밤바다', '여수항', '여수신항'},
+        
+        # 경주
+        {'불국사', '불국사절', '불국사사찰'},
+        {'석굴암', '석굴암석굴', '석굴암불상'},
+        {'첨성대', '경주첨성대', '신라첨성대'},
+        {'안압지', '동궁과월지', '경주안압지'},
+    ]
+    
+    for spot_group in same_spots:
+        if keyword1 in spot_group and keyword2 in spot_group:
             return True
     
     return False
 
 async def remove_duplicate_locations(trip_data: dict, destination: str) -> dict:
     """
-    여행 계획에서 중복되는 장소를 감지하고 제거합니다.
-    중복된 장소는 새로운 장소로 교체됩니다.
+    여행 계획에서 중복되는 장소를 순차적으로 감지하고 즉시 교체합니다.
+    더 효율적인 처리를 위해 중복 발견 시 바로 교체합니다.
     """
     if not trip_data.get("itinerary"):
         return trip_data
     
     visited_locations = set()
-    duplicates = []
+    fixed_count = 0
     
-    # 중복 장소 감지
+    # 1일차부터 순차적으로 처리
     for day_idx, day in enumerate(trip_data["itinerary"]):
         if not day.get("activities"):
             continue
+        
+        day_num = day.get('day', day_idx + 1)
+        logger.info(f"{day_num}일차 중복 검사 시작...")
             
         for activity_idx, activity in enumerate(day["activities"]):
             # 호텔/숙박 관련 활동은 체크하지 않음
@@ -988,7 +1324,7 @@ async def remove_duplicate_locations(trip_data: dict, destination: str) -> dict:
             # 더 정교한 중복 감지를 위한 키워드 추출
             location_keys = _extract_location_keywords(place_name, location_name)
             
-            # 중복 체크 - 추출된 키워드들 중 하나라도 이미 방문한 장소와 겹치면 중복으로 간주
+            # 중복 체크
             is_duplicate = False
             duplicate_key = None
             
@@ -1009,26 +1345,185 @@ async def remove_duplicate_locations(trip_data: dict, destination: str) -> dict:
                     break
             
             if is_duplicate:
-                duplicates.append({
-                    'day_idx': day_idx,
-                    'activity_idx': activity_idx,
-                    'day': day.get('day'),
-                    'original_activity': activity.copy(),
-                    'duplicate_key': duplicate_key
-                })
-                logger.info(f"중복 장소 발견: {place_name} ({day.get('day')}일차) - 중복 키워드: {duplicate_key}")
+                # 중복 발견 시 즉시 교체
+                logger.info(f"🔄 중복 장소 즉시 교체: {day_num}일차 '{place_name}' (키워드: {duplicate_key})")
+                
+                # 단일 활동 교체
+                new_activity = await replace_single_duplicate_activity(
+                    trip_data, day_idx, activity_idx, destination, visited_locations
+                )
+                
+                if new_activity:
+                    # 교체 전후 정보 로깅
+                    original_location = activity.get('location', 'N/A')
+                    new_title = new_activity.get('title', 'N/A')
+                    new_location = new_activity.get('location', 'N/A')
+                    new_real_address = new_activity.get('real_address', 'N/A')
+                    
+                    logger.info(f"🔄 장소 교체 상세:")
+                    logger.info(f"   이전: '{place_name}' -> {original_location}")
+                    logger.info(f"   이후: '{new_title}' -> {new_location}")
+                    if new_activity.get('verified'):
+                        logger.info(f"   검증된 주소: {new_real_address}")
+                    
+                    trip_data["itinerary"][day_idx]["activities"][activity_idx] = new_activity
+                    fixed_count += 1
+                    
+                    # 새로운 활동의 키워드를 방문 목록에 추가
+                    new_location_keys = _extract_location_keywords(
+                        new_activity.get('title', ''), 
+                        new_activity.get('location', '')
+                    )
+                    for key in new_location_keys:
+                        if key:
+                            visited_locations.add(key)
+                    
+                    logger.info(f"✅ 교체 완료: {place_name} → {new_activity.get('title')}")
+                else:
+                    # 교체 실패 시 원래 활동의 키워드를 추가 (무한 루프 방지)
+                    for key in location_keys:
+                        if key:
+                            visited_locations.add(key)
             else:
                 # 중복이 아닌 경우 모든 키워드를 방문 목록에 추가
                 for key in location_keys:
                     if key:
                         visited_locations.add(key)
     
-    # 중복된 장소들을 새로운 장소로 교체
-    if duplicates:
-        logger.info(f"중복된 장소 {len(duplicates)}개를 새로운 장소로 교체합니다...")
-        trip_data = await replace_duplicate_activities(trip_data, duplicates, destination, visited_locations)
+    if fixed_count > 0:
+        logger.info(f"✅ 총 {fixed_count}개의 중복 장소를 교체했습니다.")
+    else:
+        logger.info("✅ 중복 장소가 발견되지 않았습니다.")
     
     return trip_data
+
+async def replace_single_duplicate_activity(trip_data: dict, day_idx: int, activity_idx: int, destination: str, visited_locations: set) -> dict:
+    """
+    단일 중복 활동을 빠르게 교체합니다.
+    """
+    try:
+        day = trip_data["itinerary"][day_idx]
+        original = day["activities"][activity_idx]
+        day_num = day.get('day', day_idx + 1)
+        
+        # 이미 사용된 모든 장소 목록 생성 (간소화)
+        used_titles = set()
+        used_locations = set()
+        
+        for d in trip_data.get("itinerary", []):
+            for act in d.get("activities", []):
+                if act.get('title'):
+                    used_titles.add(act.get('title').lower())
+                if act.get('location'):
+                    used_locations.add(act.get('location').lower())
+        
+        # 빠른 교체용 프롬프트 (간소화)
+        replacement_prompt = f"""
+중복된 "{original.get('title', '')}" 활동을 {destination}의 다른 유명 관광지로 즉시 교체해주세요.
+
+🚨 **사용하면 안 되는 장소들** (이미 사용됨):
+{', '.join(list(used_titles)[:10])}...
+
+**요구사항**:
+1. {destination} 지역의 실제 존재하는 유명 관광지만 사용
+2. 위에 나열된 장소들과 절대 겹치지 않는 새로운 장소
+3. 시간: {original.get('time', '09:00')} 유지
+4. JSON 형식으로 단일 activity만 반환
+
+{{
+    "time": "{original.get('time', '09:00')}",
+    "title": "새로운 유명 관광지명",
+    "location": "정확한 관광지명 또는 주소",
+    "description": "활동 설명",
+    "duration": "{original.get('duration', '2시간')}"
+}}
+"""
+        
+        # OpenAI API 호출 (더 빠른 설정)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": f"당신은 {destination} 관광 전문가입니다. 중복된 장소를 빠르게 다른 유명 관광지로 교체해주세요. 간단하고 빠르게 응답해주세요."},
+                {"role": "user", "content": replacement_prompt}
+            ],
+            max_tokens=300,  # 토큰 수 줄임
+            temperature=0.2   # 더 일관된 결과
+        )
+        
+        content = response.choices[0].message.content.strip()
+        
+        # JSON 파싱
+        start_idx = content.find('{')
+        end_idx = content.rfind('}') + 1
+        if start_idx != -1 and end_idx != -1:
+            json_str = content[start_idx:end_idx]
+            new_activity = json.loads(json_str)
+            
+            # 🔥 중요: 새로운 활동의 주소를 카카오 API로 즉시 검증 및 업데이트
+            region = destination.split()[0] if destination else ""
+            verified_activity = kakao_service.verify_and_enrich_location(new_activity, region)
+            
+            # 검증된 정보로 업데이트
+            if verified_activity.get('verified', False):
+                logger.info(f"🔄 교체된 장소 주소 업데이트: '{new_activity.get('title')}' -> {verified_activity.get('real_address', 'N/A')}")
+                return verified_activity
+            else:
+                logger.warning(f"⚠️ 교체된 장소 '{new_activity.get('title')}'의 주소 검증 실패")
+                return new_activity
+        
+    except Exception as e:
+        logger.error(f"단일 활동 교체 중 오류: {str(e)}")
+    
+    return None
+
+async def check_final_duplicates(trip_data: dict) -> list:
+    """
+    최종 중복 검사를 수행합니다.
+    """
+    if not trip_data.get("itinerary"):
+        return []
+    
+    all_locations = []
+    duplicates = []
+    
+    # 모든 장소를 수집
+    for day_idx, day in enumerate(trip_data["itinerary"]):
+        if not day.get("activities"):
+            continue
+            
+        for activity_idx, activity in enumerate(day["activities"]):
+            title = activity.get('title', '').strip()
+            location = activity.get('location', '').strip()
+            
+            # 호텔/숙박 관련 활동은 체크하지 않음
+            if any(keyword in title.lower() for keyword in ['호텔', '숙박', '체크인', '체크아웃', 'hotel', 'check-in', 'check-out']):
+                continue
+            
+            location_info = {
+                'day_idx': day_idx,
+                'activity_idx': activity_idx,
+                'day': day.get('day'),
+                'title': title,
+                'location': location,
+                'keywords': _extract_location_keywords(title, location)
+            }
+            
+            # 기존 장소들과 중복 체크
+            for existing in all_locations:
+                # 제목이나 위치가 완전히 같은 경우
+                if title.lower() == existing['title'].lower() or location.lower() == existing['location'].lower():
+                    duplicates.append(f"Day {day.get('day')}: '{title}' 중복 (Day {existing['day']}와 동일)")
+                    continue
+                
+                # 키워드 기반 유사성 체크
+                for keyword in location_info['keywords']:
+                    if keyword and keyword in existing['keywords']:
+                        duplicates.append(f"Day {day.get('day')}: '{title}' 중복 키워드 '{keyword}' (Day {existing['day']}와 중복)")
+                        break
+            
+            all_locations.append(location_info)
+    
+    return duplicates
 
 async def replace_duplicate_activities(trip_data: dict, duplicates: list, destination: str, visited_locations: set) -> dict:
     """
@@ -1048,42 +1543,74 @@ async def replace_duplicate_activities(trip_data: dict, duplicates: list, destin
             # 이미 방문한 장소들 목록 생성
             visited_list = list(visited_locations)
             
-            # 교체용 프롬프트
+            # 전체 일정에서 이미 사용된 모든 장소들 수집
+            all_used_locations = set()
+            for day in trip_data.get("itinerary", []):
+                for activity in day.get("activities", []):
+                    if activity.get('title') and activity.get('location'):
+                        # 더 정교한 키워드 추출로 중복 방지
+                        used_keywords = _extract_location_keywords(
+                            activity.get('title', ''), 
+                            activity.get('location', '')
+                        )
+                        all_used_locations.update(used_keywords)
+            
+            # 교체용 프롬프트 (더 강화된 버전)
             replacement_prompt = f"""
-다음 여행 일정에서 "{original.get('title', '')}" 활동을 {destination} 지역의 다른 구체적인 장소로 교체해주세요.
-이 장소는 이미 다른 날에 방문 예정이므로 중복을 피해야 합니다.
+🚨 **중복 장소 교체 요청** 🚨
 
-현재 {day_num}일차 다른 활동들:
+"{original.get('title', '')}" 활동이 다른 날짜와 중복되어 교체가 필요합니다.
+{destination} 지역의 **완전히 다른 새로운 장소**로 교체해주세요.
+
+**현재 {day_num}일차 다른 활동들:**
 {json.dumps(other_activities, ensure_ascii=False, indent=2)}
 
-이미 방문 예정인 장소들 (피해야 할 장소들):
-{', '.join(visited_list[:10])}  # 처음 10개만 표시
+**🚫 절대 사용하면 안 되는 장소들 (이미 일정에 포함됨):**
+{', '.join(sorted(list(all_used_locations))[:20])}
+... (총 {len(all_used_locations)}개 장소가 이미 사용됨)
 
-⚠️ **필수 요구사항 - 구체적인 장소명 사용**:
-1. {destination} 지역에 실제로 존재하는 관광지/맛집/체험활동으로 교체
-2. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
-3. 위에 나열된 장소들과 완전히 다른 새로운 장소 선택
-4. 다른 활동들과 지리적으로 접근 가능한 장소 선택
-5. **반드시 구체적인 고유명사를 사용하세요**:
-   ❌ 잘못된 예: "다른 해변", "또 다른 시장", "새로운 공원"
-   ✅ 올바른 예: "광안리해변", "국제시장", "용두산공원"
-6. JSON 형식으로 단일 activity 객체만 반환
+**⚠️ 중복 방지 규칙 (매우 중요!):**
+1. **위에 나열된 모든 장소와 완전히 다른 곳만 선택**
+2. **유사한 장소도 절대 금지**: 
+   - 예: "해운대해수욕장" 사용 시 → "해운대카페", "해운대근처" 등 해운대 관련 모든 장소 금지
+   - 예: "자갈치시장" 사용 시 → "자갈치회센터", "자갈치근처" 등 자갈치 관련 모든 장소 금지
+3. **같은 지역/건물 내 다른 시설도 금지**
+4. **완전히 다른 지역의 다른 유형 장소만 선택**
 
-JSON 형식:
+**✅ 교체 요구사항:**
+1. {destination} 지역의 실제 존재하는 유명 관광지만 사용
+2. 시간대: {original.get('time', '')} 유지
+3. 지리적으로 {day_num}일차 다른 활동들과 접근 가능한 곳
+4. **반드시 구체적인 고유명사 사용**:
+   ❌ "다른 해변", "새로운 시장", "또 다른 공원"
+   ✅ "송도해수욕장", "국제시장", "용두산공원"
+
+**JSON 응답 형식:**
 {{
-    "time": "시간",
-    "title": "구체적인 장소명을 포함한 새로운 활동명",
+    "time": "{original.get('time', '')}",
+    "title": "구체적인 새 장소명을 포함한 활동명",
     "location": "정확한 주소 또는 구체적인 장소명",
-    "description": "활동 설명",
-    "duration": "소요시간"
+    "description": "새로운 활동에 대한 설명",
+    "duration": "{original.get('duration', '1-2시간')}"
 }}
+
+**⚠️ 주의**: 위에 나열된 사용 금지 장소들과 조금이라도 유사하면 절대 사용하지 마세요!
 """
             
             # OpenAI API 호출
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "당신은 여행 전문가입니다. 중복을 피해 실제 존재하는 구체적인 고유명사 새로운 장소만 추천해주세요. 모호한 표현 대신 정확한 장소명을 사용하세요."},
+                    {"role": "system", "content": """당신은 한국 관광 전문가입니다. 중복 장소 교체를 담당합니다.
+
+🚨 **절대 규칙**:
+1. **중복 절대 금지**: 사용자가 제공한 "사용하면 안 되는 장소" 목록과 조금이라도 유사한 곳은 절대 선택하지 마세요
+2. **유사 장소도 금지**: 같은 지역/건물/시설군의 다른 장소도 금지 (예: 해운대해수욕장 → 해운대 관련 모든 장소 금지)
+3. **구체적 고유명사만**: "다른 해변", "새로운 시장" 같은 모호한 표현 절대 금지
+4. **실제 존재 확인**: 확실히 존재하는 유명 관광지만 선택
+5. **완전히 다른 지역**: 기존 장소들과 완전히 다른 지역의 다른 유형 장소만 선택
+
+⚠️ 의심스러우면 선택하지 마세요. 확실한 곳만 추천하세요."""},
                     {"role": "user", "content": replacement_prompt}
                 ],
                 max_tokens=500,
@@ -1099,16 +1626,42 @@ JSON 형식:
                 json_str = content[start_idx:end_idx]
                 new_activity = json.loads(json_str)
                 
-                # 새로운 활동으로 교체
-                trip_data["itinerary"][day_idx]["activities"][activity_idx] = new_activity
+                # 교체된 장소가 또 다른 중복이 아닌지 검증
+                new_keywords = _extract_location_keywords(
+                    new_activity.get('title', ''), 
+                    new_activity.get('location', '')
+                )
                 
-                # 새로운 장소를 방문 목록에 추가
-                new_place_name = new_activity.get('title', '').strip()
-                if new_place_name:
-                    normalized_new = ''.join(new_place_name.lower().split())
-                    visited_locations.add(normalized_new)
+                # 기존 장소들과 중복 확인
+                is_still_duplicate = False
+                for new_keyword in new_keywords:
+                    if new_keyword in all_used_locations:
+                        is_still_duplicate = True
+                        logger.warning(f"교체된 장소도 중복됨: {new_keyword}")
+                        break
+                    
+                    # 더 정교한 유사성 검사
+                    for used_keyword in all_used_locations:
+                        if _is_similar_location(new_keyword, used_keyword):
+                            is_still_duplicate = True
+                            logger.warning(f"교체된 장소가 유사함: {new_keyword} ≈ {used_keyword}")
+                            break
+                    
+                    if is_still_duplicate:
+                        break
                 
-                logger.info(f"{day_num}일차 중복 장소 교체 완료: {original.get('title')} -> {new_activity.get('title')}")
+                if not is_still_duplicate:
+                    # 새로운 활동으로 교체
+                    trip_data["itinerary"][day_idx]["activities"][activity_idx] = new_activity
+                    
+                    # 새로운 장소를 방문 목록에 추가
+                    visited_locations.update(new_keywords)
+                    
+                    logger.info(f"✅ {day_num}일차 중복 장소 교체 완료: {original.get('title')} -> {new_activity.get('title')}")
+                else:
+                    # 여전히 중복이면 원본 유지하고 경고
+                    logger.error(f"❌ {day_num}일차 교체 실패 - 새 장소도 중복됨: {new_activity.get('title')}")
+                    logger.info(f"원본 활동 유지: {original.get('title')}")
             else:
                 logger.error(f"{day_num}일차 중복 장소 교체 실패: JSON 파싱 오류")
                 
@@ -1205,11 +1758,11 @@ class TripPlan(BaseModel):
     destination: str  # 목적지
     duration: str  # 여행 기간
     itinerary: List[dict]  # 일정표 (각 날짜별 활동)
-    accommodation: List[HotelInfo]  # 숙박 정보
     total_cost: str  # 총 예상 비용
     tips: List[str]  # 여행 팁 리스트
     transport_info: Optional[dict] = None  # 대중교통 정보
     trip_hotel_search: Optional[dict] = None  # 전체 여행에 대한 호텔 검색 링크
+    accommodation: Optional[List[HotelInfo]] = []  # 숙박 정보 (선택사항, 기본값: 빈 리스트)
 
 
 # ========================================
@@ -1297,283 +1850,7 @@ def calculate_trip_cost(budget: str, travel_days: int, destination: str) -> int:
 
 
 
-# ========================================
-# 축제/행사 정보 서비스 클래스
-# ========================================
-# 이 클래스는 여행 기간에 해당하는 축제나 행사 정보를 제공합니다
 
-class EventService:
-    """축제/행사 정보를 제공하는 서비스"""
-    
-    def __init__(self):
-        self.naver_service = NaverSearchService()
-    
-    def get_events_by_destination_and_date(self, destination: str, start_date: str, end_date: str) -> List[dict]:
-        """목적지와 날짜에 맞는 축제/행사 정보를 제공하는 메서드"""
-        
-        try:
-            # 먼저 네이버 API로 실시간 검색 시도
-            logger.info(f"네이버 API로 {destination} 지역 축제/행사 검색 시작")
-            naver_events = self.naver_service.search_events(destination, start_date, end_date)
-            
-            # 네이버 API 검색 결과 품질 확인
-            if naver_events and len(naver_events) >= 3:
-                logger.info(f"네이버 API 검색 결과: {len(naver_events)}개 이벤트 발견 (품질 양호)")
-                return naver_events
-            elif naver_events and len(naver_events) > 0:
-                logger.info(f"네이버 API 검색 결과: {len(naver_events)}개 이벤트 발견 (품질 부족)")
-                # 기본 데이터베이스와 병합
-                default_events = self._get_default_events(destination, start_date, end_date)
-                combined_events = naver_events + default_events
-                # 중복 제거
-                unique_events = self._remove_duplicates(combined_events)
-                return unique_events[:8]  # 최대 8개 반환
-            else:
-                # 네이버 API 검색 결과가 없는 경우 기본 데이터베이스 사용
-                logger.info("네이버 API 검색 결과가 없어 기본 데이터베이스 사용")
-                return self._get_default_events(destination, start_date, end_date)
-            
-        except Exception as e:
-            logger.warning(f"네이버 API 검색 실패, 기본 데이터베이스 사용: {e}")
-            return self._get_default_events(destination, start_date, end_date)
-    
-    def _get_default_events(self, destination: str, start_date: str, end_date: str) -> List[dict]:
-        """기본 축제/행사 데이터베이스에서 정보를 가져오는 메서드"""
-        
-        # 실제 축제/행사 데이터베이스 (더 많은 정보를 추가할 수 있습니다)
-        events_db = {
-            "여수": [
-                {
-                    "name": "여수 세계 엑스포",
-                    "date": "2024-05-01",
-                    "description": "해양과 미래를 주제로 한 세계 박람회",
-                    "location": "여수 엑스포 공원",
-                    "type": "세계 박람회",
-                    "website": "https://www.expo2024.kr",
-                    "ticket_info": "사전 예약 필요"
-                },
-                {
-                    "name": "여수 밤바다 불꽃축제",
-                    "date": "2024-07-15",
-                    "description": "여수 바다를 배경으로 한 화려한 불꽃쇼",
-                    "location": "여수 해안가",
-                    "type": "불꽃축제",
-                    "website": None,
-                    "ticket_info": "무료"
-                },
-                {
-                    "name": "여수 해산물 축제",
-                    "date": "2024-10-01",
-                    "description": "신선한 해산물을 맛볼 수 있는 지역 축제",
-                    "location": "여수 항구",
-                    "type": "음식 축제",
-                    "website": None,
-                    "ticket_info": "무료 (음식은 유료)"
-                }
-            ],
-            "제주도": [
-                {
-                    "name": "제주 한라문화제",
-                    "date": "2024-04-15",
-                    "description": "한라산을 주제로 한 문화 축제",
-                    "location": "제주시 일원",
-                    "type": "문화 축제",
-                    "website": None,
-                    "ticket_info": "무료"
-                },
-                {
-                    "name": "제주 해녀 축제",
-                    "date": "2024-06-20",
-                    "description": "제주 해녀 문화를 체험할 수 있는 축제",
-                    "location": "성산일출봉",
-                    "type": "문화 체험",
-                    "website": None,
-                    "ticket_info": "일부 체험 유료"
-                },
-                {
-                    "name": "제주 감귤 축제",
-                    "date": "2024-11-01",
-                    "description": "제주 특산품 감귤을 주제로 한 축제",
-                    "location": "제주시",
-                    "type": "특산품 축제",
-                    "website": None,
-                    "ticket_info": "무료"
-                }
-            ],
-            "부산": [
-                {
-                    "name": "부산 국제영화제",
-                    "date": "2024-10-01",
-                    "description": "아시아 최대 규모의 영화제",
-                    "location": "해운대구",
-                    "type": "영화제",
-                    "website": "https://www.biff.kr",
-                    "ticket_info": "사전 예약 필요"
-                },
-                {
-                    "name": "부산 불꽃축제",
-                    "date": "2024-08-15",
-                    "description": "해운대 해변에서 열리는 화려한 불꽃쇼",
-                    "location": "해운대 해변",
-                    "type": "불꽃축제",
-                    "website": None,
-                    "ticket_info": "무료"
-                },
-                {
-                    "name": "부산 국제수산무역전시회",
-                    "date": "2024-05-20",
-                    "description": "수산업 관련 국제 전시회",
-                    "location": "BEXCO",
-                    "type": "전시회",
-                    "website": None,
-                    "ticket_info": "사전 등록 필요"
-                }
-            ],
-            "도쿄": [
-                {
-                    "name": "도쿄 체리블라썸 축제",
-                    "date": "2024-04-01",
-                    "description": "벚꽃 개화를 축하하는 전통 축제",
-                    "location": "우에노 공원",
-                    "type": "전통 축제",
-                    "website": None,
-                    "ticket_info": "무료"
-                },
-                {
-                    "name": "도쿄 게임쇼",
-                    "date": "2024-09-15",
-                    "description": "세계 최대 규모의 게임 전시회",
-                    "location": "마쿠하리 멧세",
-                    "type": "게임 전시회",
-                    "website": "https://tgs.nikkeibp.co.jp",
-                    "ticket_info": "사전 예약 필요"
-                },
-                {
-                    "name": "도쿄 디자인 위크",
-                    "date": "2024-10-20",
-                    "description": "디자인과 창작을 주제로 한 국제 행사",
-                    "location": "도쿄 시내",
-                    "type": "디자인 행사",
-                    "website": "https://tokyodesignweek.jp",
-                    "ticket_info": "일부 행사 유료"
-                }
-            ],
-            "파리": [
-                {
-                    "name": "파리 패션 위크",
-                    "date": "2024-03-01",
-                    "description": "세계 최고의 패션 디자이너들의 컬렉션",
-                    "location": "파리 시내",
-                    "type": "패션 행사",
-                    "website": "https://www.fhcm.paris",
-                    "ticket_info": "초대장 필요"
-                },
-                {
-                    "name": "파리 음악제",
-                    "date": "2024-06-21",
-                    "description": "전국에서 열리는 음악 축제",
-                    "location": "파리 전역",
-                    "type": "음악 축제",
-                    "website": "https://fetedelamusique.culture.gouv.fr",
-                    "ticket_info": "무료"
-                },
-                {
-                    "name": "파리 북 페어",
-                    "date": "2024-03-20",
-                    "description": "프랑스 최대 규모의 도서 전시회",
-                    "location": "파리 엑스포 포르트 드 베르사유",
-                    "type": "도서 전시회",
-                    "website": "https://www.livreshebdo.fr",
-                    "ticket_info": "사전 등록 필요"
-                }
-            ]
-        }
-        
-        # 기본 축제/행사 정보 (목적지에 해당하는 정보가 없는 경우)
-        default_events = [
-            {
-                "name": "지역 문화 행사",
-                "date": "2024-01-01",
-                "description": "방문 시기에 열리는 지역 문화 행사가 있을 수 있습니다.",
-                "location": "지역 일원",
-                "type": "문화 행사",
-                "website": None,
-                "ticket_info": "현지 정보 확인 필요"
-            }
-        ]
-        
-        try:
-            # 날짜를 datetime 객체로 변환
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            current_date = datetime.now().date()  # 현재 날짜
-            
-            # 여행 시작일이 현재 날짜보다 과거인지 확인
-            if start_dt.date() < current_date:
-                logger.info(f"과거 여행 제외: {start_date} (현재: {current_date})")
-                return []
-            
-            # 목적지에 해당하는 축제/행사 목록 가져오기
-            destination_events = events_db.get(destination, default_events)
-            
-            # 여행 기간에 해당하는 축제/행사만 필터링
-            matching_events = []
-            for event in destination_events:
-                try:
-                    event_date = datetime.strptime(event["date"], "%Y-%m-%d")
-                    
-                    # 이미 지난 이벤트는 제외
-                    if event_date.date() < current_date:
-                        logger.info(f"과거 이벤트 제외: {event['name']} ({event['date']}) (현재: {current_date})")
-                        continue
-                    
-                    # 여행 기간 내에 있는지 정확하게 확인 (연도 포함)
-                    if start_dt <= event_date <= end_dt:
-                        matching_events.append(event)
-                        logger.info(f"여행 기간 내 이벤트: {event['name']} ({event['date']}) (여행: {start_date} ~ {end_date})")
-                        continue
-                    
-                    # 연도가 바뀌는 경우 (예: 12월 31일 ~ 1월 2일) - 월/일만 비교
-                    if start_dt.month > end_dt.month:
-                        # 여행이 연도를 걸치는 경우
-                        event_month_day = (event_date.month, event_date.day)
-                        start_month_day = (start_dt.month, start_dt.day)
-                        end_month_day = (end_dt.month, end_dt.day)
-                        
-                        # 월/일 기준으로 매칭
-                        if (event_month_day >= start_month_day) or (event_month_day <= end_month_day):
-                            matching_events.append(event)
-                            logger.info(f"연도 걸친 여행 기간 내 이벤트: {event['name']} ({event['date']}) (여행: {start_date} ~ {end_date})")
-                            continue
-                    
-                    # 여행 기간 밖의 이벤트는 제외
-                    logger.info(f"여행 기간 밖 이벤트 제외: {event['name']} ({event['date']}) (여행: {start_date} ~ {end_date})")
-                        
-                except Exception as e:
-                    # 날짜 형식이 맞지 않는 경우 건너뛰기
-                    logger.warning(f"이벤트 날짜 파싱 실패: {event['name']}, {e}")
-                    continue
-            
-            # 날짜순으로 정렬
-            matching_events.sort(key=lambda x: x["date"])
-            
-            # 디버깅을 위한 로그 추가
-            logger.info(f"목적지: {destination}, 여행 기간: {start_date} ~ {end_date}")
-            logger.info(f"총 이벤트 수: {len(destination_events)}, 매칭된 이벤트 수: {len(matching_events)}")
-            if matching_events:
-                for event in matching_events:
-                    logger.info(f"매칭된 이벤트: {event['name']} ({event['date']})")
-            
-            # 테스트를 위해 매칭된 이벤트가 없으면 모든 이벤트를 반환
-            if not matching_events:
-                logger.info("매칭된 이벤트가 없어 모든 이벤트를 반환합니다.")
-                return destination_events
-            
-            return matching_events
-            
-        except Exception as e:
-            logger.warning(f"축제/행사 정보 조회 중 오류: {e}")
-            return default_events
 
 # ========================================
 # 호텔 검색 서비스 클래스
@@ -1750,12 +2027,133 @@ async def root():
     """루트 경로 (메인 페이지) - 서버가 정상 작동하는지 확인하는 용도"""
     return {"message": "여행 플래너 AI API"}
 
+# ========================================
+# 진행 상황 SSE 엔드포인트
+# ========================================
+
+async def generate_progress_events(request_data: dict):
+    """여행 계획 생성 과정의 진행 상황을 실시간으로 전달하는 제너레이터"""
+    try:
+        # 1단계: 요청 검증
+        yield f"data: {json.dumps({'step': 1, 'message': '여행 정보를 검증하고 있습니다...', 'progress': 8, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.8)
+        
+        # 2단계: 데이터 전처리
+        yield f"data: {json.dumps({'step': 2, 'message': '여행 데이터를 분석하고 있습니다...', 'progress': 15, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(1.0)
+        
+        # 3단계: AI 시스템 준비
+        yield f"data: {json.dumps({'step': 3, 'message': 'AI 시스템을 준비하고 있습니다...', 'progress': 25, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(1.2)
+        
+        # 4단계: 기본 정보 수집
+        yield f"data: {json.dumps({'step': 4, 'message': '목적지 기본 정보를 수집하고 있습니다...', 'progress': 35, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(1.4)
+        
+        # 5단계: 관광지 데이터베이스 조회
+        yield f"data: {json.dumps({'step': 5, 'message': '관광지 데이터베이스를 조회하고 있습니다...', 'progress': 45, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(1.6)
+        
+        # 6단계: 맞춤형 추천 준비
+        yield f"data: {json.dumps({'step': 6, 'message': '맞춤형 추천을 준비하고 있습니다...', 'progress': 55, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(1.2)
+        
+        # 7단계: 여행 패턴 분석
+        yield f"data: {json.dumps({'step': 7, 'message': '여행 패턴을 분석하고 있습니다...', 'progress': 65, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(1.4)
+        
+        # 8단계: 일정 최적화 준비
+        yield f"data: {json.dumps({'step': 8, 'message': '일정 최적화를 준비하고 있습니다...', 'progress': 75, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(1.0)
+        
+        # 9단계: AI 모델 로딩
+        yield f"data: {json.dumps({'step': 9, 'message': 'AI 모델을 로딩하고 있습니다...', 'progress': 82, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.8)
+        
+        # 10단계: 최종 준비 단계
+        yield f"data: {json.dumps({'step': 10, 'message': '여행 계획 생성을 준비하고 있습니다...', 'progress': 88, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.8)
+        
+        # 11단계: API 호출 직전
+        yield f"data: {json.dumps({'step': 11, 'message': 'AI가 여행 계획을 생성하고 있습니다...', 'progress': 90, 'total_steps': 11}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.8)
+        
+        # 실제 OpenAI API 호출은 plan-trip API에서 처리됨 - 여기서는 90%까지만
+        
+    except Exception as e:
+        yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+@app.get("/plan-trip-progress")
+async def plan_trip_progress(
+    destination: str,
+    start_date: str,
+    end_date: str,
+    budget: str = "보통",
+    guests: int = 2,
+    rooms: int = 1
+):
+    """여행 계획 생성 진행 상황을 실시간으로 전달하는 SSE 엔드포인트"""
+    request_data = {
+        'destination': destination,
+        'start_date': start_date,
+        'end_date': end_date,
+        'budget': budget,
+        'guests': guests,
+        'rooms': rooms
+    }
+    
+    return StreamingResponse(
+        generate_progress_events(request_data),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
 @app.post("/plan-trip", response_model=TripPlan)
 async def plan_trip(request: TripRequest):
     """여행 계획을 생성하는 메인 API"""
     try:
+        # 입력 데이터 검증
+        if not request.destination or request.destination.strip() == "":
+            raise HTTPException(status_code=400, detail="목적지를 입력해주세요.")
+        
+        if not request.start_date or request.start_date.strip() == "":
+            raise HTTPException(status_code=400, detail="여행 시작일을 선택해주세요.")
+        
+        if not request.end_date or request.end_date.strip() == "":
+            raise HTTPException(status_code=400, detail="여행 종료일을 선택해주세요.")
+        
+        # 날짜 형식 검증 및 파싱
+        try:
+            start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
+            end_date = datetime.strptime(request.end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.")
+        
+        # 날짜 논리 검증
+        if start_date >= end_date:
+            raise HTTPException(status_code=400, detail="여행 시작일은 종료일보다 이전이어야 합니다.")
+        
+        # 여행 기간 검증 (최대 4박 5일)
+        travel_days = (end_date - start_date).days + 1
+        if travel_days > 5:
+            raise HTTPException(status_code=400, detail="여행 기간은 최대 4박 5일까지 가능합니다.")
+        
+        if travel_days < 1:
+            raise HTTPException(status_code=400, detail="여행 기간은 최소 1일 이상이어야 합니다.")
+        
+        # 과거 날짜 검증
+        current_date = datetime.now().date()
+        if start_date.date() < current_date:
+            raise HTTPException(status_code=400, detail="여행 시작일은 오늘 이후 날짜여야 합니다.")
+        
         # 로그에 요청 정보를 기록합니다
-        logger.info(f"여행 계획 생성 요청: {request.destination}, {request.start_date} ~ {request.end_date}")
+        logger.info(f"여행 계획 생성 요청: {request.destination}, {request.start_date} ~ {request.end_date} ({travel_days}일)")
         
         # 호텔 검색 서비스를 초기화합니다
         hotel_service = HotelSearchService()
@@ -1763,124 +2161,124 @@ async def plan_trip(request: TripRequest):
         # 카카오 로컬 서비스를 초기화합니다
         kakao_service = KakaoLocalService()
         
-        # 여행 일수를 계산합니다
-        try:
-            start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
-            end_date = datetime.strptime(request.end_date, "%Y-%m-%d")
-            travel_days = (end_date - start_date).days + 1
-        except:
-            travel_days = 3  # 날짜 계산에 실패하면 기본값 3일을 사용합니다
-        
         # OpenAI API에 전달할 프롬프트(질문)를 생성합니다
         # 프롬프트는 AI에게 무엇을 해달라고 요청하는 메시지입니다
         prompt = f"""
-        다음 조건에 맞는 상세한 여행 계획을 한국어로 작성해주세요:
-        
-        목적지: {request.destination}
-        여행 기간: {request.start_date} ~ {request.end_date} (총 {travel_days}일)
-        예산: {request.budget}
-        관심사: {', '.join(request.interests) if request.interests else '일반적인 관광'}
-        투숙객: {request.guests}명, 객실: {request.rooms}개
-        여행 페이스: {request.travelPace if request.travelPace else '보통'}
-        
-        ⚠️ **중요 지침: 실제 존재하는 구체적인 장소만 추천해주세요**
-        - 모든 관광지, 음식점은 실제로 존재하는 구체적인 장소명을 사용해야 합니다
-        - 확실하지 않은 장소는 추천하지 마세요
-        - 유명하고 검증된 관광명소를 우선적으로 포함해주세요
-        - 호텔은 알려주지 마세요
-        
-        ⚠️ **구체적인 장소명 사용 필수 지침**
-        - 모호한 표현 대신 정확한 고유명사를 사용하세요
-          ❌ 잘못된 예: "강릉 해변 산책", "부산 해수욕장", "제주 폭포"
-          ✅ 올바른 예: "경포해변 산책", "해운대해수욕장", "천지연폭포"
-        - 음식점도 구체적인 지역명과 함께 표현하세요
-          ❌ 잘못된 예: "현지 유명 식당", "전통 한식당"
-          ✅ 올바른 예: "남포동 국밥골목", "명동교자 본점"
-        - 위치(location)는 반드시 구체적인 주소나 고유명사를 포함하세요
-          ❌ 잘못된 예: "시내 중심가", "해변가"
-          ✅ 올바른 예: "강릉시 창해로 365", "경포해변"
-        - 여러 선택지가 있는 경우 가장 유명한 하나를 선택하세요
-          예: "강릉 해변" → "경포해변" (강릉의 대표 해변)
-        
-        ⚠️ **추가 주의사항**
-        - 가상의 동네명이나 지역명을 만들지 마세요
-        - 불확실한 정보보다는 확실한 구체적 장소를 선호하세요
-        - 각 지역의 대표적이고 유명한 장소를 우선 선택하세요
-        
-        다음 형식으로 JSON 응답을 제공해주세요:
-        
-        여행 페이스별 활동 개수 가이드:
-        - 타이트하게: 하루에 4-6개 활동 (빠른 이동, 다양한 체험)
-        - 널널하게: 하루에 2-3개 활동 (여유로운 일정, 충분한 휴식)
+목적지: {request.destination}
+여행 기간: {request.start_date} ~ {request.end_date} (총 {travel_days}일)
+인원수: {request.guests}명
+객실: {request.rooms}개
+예산: {request.budget}
+관심사: {', '.join(request.interests) if request.interests else '일반적인 관광'}
+여행 페이스: {request.travelPace if request.travelPace else '보통'}
+
+위 조건에 맞는 여행 일정을 짜주세요.
+
+🚨 **최우선 규칙: 장소 중복 절대 금지**
+
+**⚠️ 중요: 작성하기 전에 반드시 다음 단계를 따르세요:**
+
+1️⃣ **1일차 활동 작성** → 사용된 장소들을 기억하세요
+2️⃣ **2일차 활동 작성 전** → 1일차에서 사용한 모든 장소와 겹치지 않는지 확인
+3️⃣ **3일차 활동 작성 전** → 1일차, 2일차에서 사용한 모든 장소와 겹치지 않는지 확인
+4️⃣ **이런 식으로 매일 이전 모든 날짜의 장소들을 피해서 작성**
+
+**중복 금지 예시:**
+❌ 1일차: "해운대해수욕장 산책" → 2일차: "해운대해수욕장에서 일출보기" (같은 장소!)
+❌ 1일차: "남산타워" → 3일차: "N서울타워" (같은 장소의 다른 이름!)
+❌ 1일차: "자갈치시장" → 2일차: "자갈치시장 회센터" (같은 건물 내!)
+
+✅ 1일차: "해운대해수욕장" → 2일차: "광안리해변" (완전히 다른 해변)
+✅ 1일차: "경복궁" → 2일차: "창덕궁" (완전히 다른 궁궐)
+
+**여행 페이스별 활동 개수:**
+- "널널하게": 하루에 2-3개 활동 (여유롭게 천천히)
+- "타이트하게": 하루에 4개 활동 (알차게 많은 곳 방문)
+
+**다른 규칙들:**
+- 애매한 이름 금지: "부산 해변" → "해운대해수욕장"
+- 호텔 정보 제외
+- 확실히 존재하는 유명한 장소만 추천
+
+**⚠️ 작성 중 체크리스트:**
+□ 이 장소가 이전 날짜에 이미 나왔나?
+□ 비슷한 이름의 장소가 이미 있나?
+□ 같은 건물이나 지역 내 다른 시설인가?
+→ 하나라도 해당되면 완전히 다른 장소로 변경!
+
+JSON 형식으로 응답:
+{{
+    "destination": "{request.destination}",
+    "duration": "{travel_days}일",
+    "itinerary": [
         {{
-            "destination": "목적지명",
-            "duration": "여행 기간",
-            "itinerary": [
+            "day": 1,
+            "date": "{request.start_date}",
+            "activities": [
                 {{
-                    "day": 1,
-                    "date": "{request.start_date}",
-                    "activities": [
-                        {{
-                            "time": "09:00",
-                            "title": "구체적인 활동명 (고유명사 포함)",
-                            "location": "정확한 주소 또는 구체적인 장소명 (예: 경포해변, 강릉시 창해로 365)",
-                            "description": "활동 설명",
-                            "duration": "소요시간"
-                        }}
-                    ],
-                    "accommodation": "숙박지 (구체적인 지역명 포함)"
+                    "time": "09:00",
+                    "title": "구체적인 장소명 포함한 활동명",
+                    "location": "정확한 주소나 유명 랜드마크명",
+                    "description": "활동 설명",
+                    "duration": "소요시간"
                 }}
-            ],
-            "accommodation": [
-                {{
-                    "name": "실제 호텔명 (존재하는 호텔명 사용)",
-                    "type": "호텔/펜션/게스트하우스 등",
-                    "price_range": "가격대",
-                    "description": "설명",
-                    "rating": 4.5,
-                    "amenities": ["무료 WiFi", "주차", "조식"],
-                    "location": "구체적인 위치 (구/군 단위)"
-                }}
-            ],
-            "total_cost": "1인당 예상 비용",
-            "tips": ["여행 팁1", "여행 팁2", "여행 팁3"]
+            ]
         }}
-        
-        중요사항:
-        1. accommodation의 name 필드에는 실제 존재하는 호텔명을 사용해주세요. 가상의 호텔명(예: "호텔 A", "추천 호텔")은 사용하지 마세요.
-        2. itinerary 배열에는 여행 기간에 맞는 모든 일차를 포함해주세요. {travel_days}일 여행이면 {travel_days}개의 일차가 있어야 합니다.
-        3. activities 배열에는 여행 페이스에 따라 다른 수의 활동을 포함해주세요:
-           - "타이트하게": 하루에 4-6개 활동 (시간별로 세밀하게 계획된 일정)
-           - "널널하게": 하루에 2-3개 활동 (각 활동에 충분한 시간 할애)
-        4. 각 activity에는 정확한 시간(time), 구체적인 제목(title), 정확한 위치(location), 설명(description), 소요시간(duration)을 포함해주세요.
-        5. time은 24시간 형식(예: "09:00", "14:30")으로 작성하고, 여행 페이스에 따라 활동 간격을 조절해주세요.
-        6. **title과 location 필드는 반드시 구체적인 고유명사를 포함해야 합니다**:
-           - title: "경포해변 산책", "해운대해수욕장 방문" (모호한 "해변 산책" 금지)
-           - location: "경포해변", "부산광역시 해운대구 해운대해변로" (모호한 "해변가" 금지)
-        7. total_cost는 반드시 "1인당 XXX,XXX원" 형식으로 작성해주세요. 예산별 가이드: 저예산(1일 8-10만원), 보통(1일 12-15만원), 고급(1일 20-25만원), 럭셔리(1일 35-50만원). 예시: "1인당 375,000원"
-        8. **중복 장소 엄격 금지**: 
-           - 같은 장소(관광지, 음식점 등)를 여러 날에 중복으로 포함하지 마세요
-           - 각 장소는 전체 여행 기간 동안 단 한 번만 방문하도록 계획해주세요
-           - 예시: 1일차에 "해상케이블카"가 있으면 2일차, 3일차에는 절대 포함하지 마세요
-           - 예시: 1일차에 "오동도"가 있으면 다른 날에는 "오동도" 관련 어떤 활동도 포함하지 마세요
-           - 유사한 장소도 피하세요 (예: "남산타워"와 "N서울타워"는 같은 장소)
+    ],
+    "total_cost": "1인당 XXX,XXX원",
+    "tips": ["여행 팁들"]
+}}
         """
         
-        logger.info("OpenAI API 호출 시작...")
+        logger.info("=== OpenAI API 호출 시작 ===")
+        logger.info(f"목적지: {request.destination}, 여행기간: {travel_days}일")
+        logger.info(f"모델: gpt-4o, 최대토큰: 3000, Temperature: 0.3")
+        
+        # 실제 OpenAI API 호출 시작 시점 기록
+        api_start_time = datetime.now()
+        logger.info(f"API 호출 시작 시간: {api_start_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
         
         # OpenAI API를 호출하여 AI 여행 계획을 생성합니다
         # 최신 OpenAI API 사용법을 적용했습니다
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # 사용할 AI 모델
+            model="gpt-4o",  # 사용할 AI 모델
             messages=[
-                {"role": "system", "content": f"당신은 전문 여행 플래너입니다. 상세하고 실용적인 여행 계획을 제공해주세요. {travel_days}일 여행 계획을 만들어주세요. **중요**: 1) 모든 장소명은 구체적인 고유명사를 사용해야 합니다. 모호한 표현(해변, 시장, 공원 등) 대신 정확한 장소명(경포해변, 자갈치시장, 남산공원 등)을 사용하세요. 2) 중복 장소 절대 금지: 같은 장소를 여러 날에 포함하지 마세요. 해상케이블카, 오동도 등 각 장소는 전체 일정에서 단 한 번만 등장해야 합니다. 3) 호텔명도 실제 존재하는 구체적인 호텔명을 사용해주세요."},
+                {"role": "system", "content": f"""당신은 전문 여행 플래너입니다. {travel_days}일 여행 계획을 작성해주세요.
+
+🚨 **최우선 규칙: 장소 중복 절대 금지**
+
+**필수 작성 절차:**
+1. 1일차 모든 활동 작성 완료
+2. 2일차 작성 시: 1일차 장소들을 머릿속에서 확인하고 완전히 다른 장소만 선택
+3. 3일차 작성 시: 1일차+2일차 모든 장소들을 확인하고 완전히 다른 장소만 선택
+4. 매일 이전 모든 날짜의 장소를 피해서 작성
+
+**중복 체크 방법:**
+- 장소명이 같으면 중복 (해운대해수욕장 = 해운대해수욕장)
+- 같은 장소의 다른 이름도 중복 (남산타워 = N서울타워)
+- 같은 건물/지역 내 시설도 중복 (자갈치시장 = 자갈치시장 회센터)
+
+**절대 하지 말 것:**
+❌ "1일차에 해운대해수욕장 → 2일차에 해운대해수욕장" 
+❌ 같은 장소를 다른 이름으로 반복
+
+**반드시 할 것:**
+✅ 각 장소는 전체 여행에서 단 한 번만 등장
+✅ 구체적 고유명사 사용
+✅ 여행 페이스에 맞는 활동 개수: 널널하게(2-3개), 타이트하게(3-4개), 보통(3개)
+✅ JSON 형식으로 정확히 응답"""},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=3000,  # AI 응답의 최대 길이 (더 긴 응답을 위해 증가)
-            temperature=0.7   # AI의 창의성 수준 (0.0: 매우 일관적, 1.0: 매우 창의적)
+            temperature=0.3   # AI의 창의성 수준을 낮춰 더 일관되고 규칙을 잘 따르도록 설정
         )
         
-        logger.info("OpenAI API 응답 수신 완료")
+        # API 호출 완료 시점 기록
+        api_end_time = datetime.now()
+        api_duration = (api_end_time - api_start_time).total_seconds()
+        logger.info(f"=== OpenAI API 응답 수신 완료 ===")
+        logger.info(f"API 호출 완료 시간: {api_end_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
+        logger.info(f"API 응답 소요 시간: {api_duration:.2f}초")
         
         # AI 응답을 파싱(분석)합니다
         content = response.choices[0].message.content
@@ -1900,20 +2298,19 @@ async def plan_trip(request: TripRequest):
                 logger.info("중복 장소 검사를 시작합니다...")
                 trip_data = await remove_duplicate_locations(trip_data, request.destination)
                 
+                # 중복 제거 후 최종 검증
+                logger.info("중복 제거 후 최종 검증을 시작합니다...")
+                final_duplicates = await check_final_duplicates(trip_data)
+                if final_duplicates:
+                    logger.warning(f"최종 검증에서 여전히 중복 발견: {final_duplicates}")
+                    # 추가 중복 제거 시도
+                    trip_data = await remove_duplicate_locations(trip_data, request.destination)
+                
                 # 카카오 API로 장소 검증 및 보강
                 logger.info("카카오 API를 사용하여 장소 검증을 시작합니다...")
                 trip_data = await verify_and_enrich_trip_data(trip_data, kakao_service, request.destination)
                 
-                # 호텔 정보에 예약 링크를 추가합니다
-                for hotel in trip_data.get("accommodation", []):
-                    hotel["booking_links"] = hotel_service.create_booking_links(
-                        request.destination,
-                        request.start_date,
-                        request.end_date,
-                        request.guests,
-                        request.rooms,
-                        hotel.get("name", "")  # 호텔명을 링크 생성에 포함
-                    )
+                # 숙박 정보는 trip_hotel_search 링크로만 제공하므로 accommodation 처리 생략
                 
                 # 전체 여행에 대한 호텔 검색 링크를 생성합니다
                 trip_hotel_search = hotel_service.create_trip_hotel_search_links(
@@ -2075,19 +2472,26 @@ async def plan_trip(request: TripRequest):
                 
                 # 여행 페이스에 따른 활동 수 결정
                 if request.travelPace == "타이트하게":
+                    # 하루 3-4개 활동
                     activities = [
                         {"time": "09:00", "title": f"{day}일차 오전 관광", "location": f"{request.destination} 주요 관광지", "description": "주요 관광지 방문", "duration": "2시간"},
-                        {"time": "11:30", "title": f"현지 명소 탐방", "location": f"{request.destination} 명소", "description": "현지 문화 체험", "duration": "1.5시간"},
-                        {"time": "14:00", "title": f"점심 및 휴식", "location": f"{request.destination} 맛집", "description": "현지 음식 체험", "duration": "1시간"},
-                        {"time": "16:00", "title": f"오후 활동", "location": f"{request.destination} 체험장소", "description": "액티비티 참여", "duration": "2시간"},
-                        {"time": "19:00", "title": f"저녁 식사", "location": f"{request.destination} 음식점", "description": "저녁 식사 및 휴식", "duration": "1.5시간"}
+                        {"time": "12:00", "title": f"점심 및 현지 명소", "location": f"{request.destination} 맛집", "description": "현지 음식 체험 후 명소 탐방", "duration": "2시간"},
+                        {"time": "15:00", "title": f"오후 체험 활동", "location": f"{request.destination} 체험장소", "description": "액티비티 참여", "duration": "2.5시간"},
+                        {"time": "18:30", "title": f"저녁 식사", "location": f"{request.destination} 음식점", "description": "저녁 식사 및 휴식", "duration": "1.5시간"}
                     ]
-                else:  # 널널하게
+                elif request.travelPace == "널널하게":
+                    # 하루 2-3개 활동
                     activities = [
                         {"time": "10:00", "title": f"{day}일차 여유로운 관광", "location": f"{request.destination} 대표 관광지", "description": "천천히 둘러보며 여유있게 관광", "duration": "3시간"},
-                        {"time": "14:00", "title": f"점심 및 현지 맛집 탐방", "location": f"{request.destination} 유명 맛집", "description": "현지 특색 음식을 여유롭게 즐기기", "duration": "1.5시간"},
-                        {"time": "16:30", "title": f"현지 체험 및 쇼핑", "location": f"{request.destination} 체험장소", "description": "현지 문화를 깊이 있게 체험하고 기념품 쇼핑", "duration": "2시간"},
-                        {"time": "19:30", "title": f"저녁 식사 및 산책", "location": f"{request.destination} 저녁 맛집", "description": "현지 음식을 즐기며 여유로운 저녁 산책", "duration": "2시간"}
+                        {"time": "15:00", "title": f"점심 및 현지 체험", "location": f"{request.destination} 유명 맛집", "description": "현지 특색 음식을 여유롭게 즐기고 문화 체험", "duration": "2.5시간"},
+                        {"time": "19:00", "title": f"저녁 식사 및 산책", "location": f"{request.destination} 저녁 맛집", "description": "현지 음식을 즐기며 여유로운 저녁 산책", "duration": "2시간"}
+                    ]
+                else:  # 보통
+                    # 하루 3개 활동
+                    activities = [
+                        {"time": "09:30", "title": f"{day}일차 오전 관광", "location": f"{request.destination} 주요 관광지", "description": "주요 관광지 방문", "duration": "2.5시간"},
+                        {"time": "13:30", "title": f"점심 및 오후 활동", "location": f"{request.destination} 맛집", "description": "현지 음식 체험 후 오후 활동", "duration": "3시간"},
+                        {"time": "18:00", "title": f"저녁 식사", "location": f"{request.destination} 음식점", "description": "저녁 식사 및 휴식", "duration": "1.5시간"}
                     ]
                 
                 itinerary_list.append({
@@ -2120,7 +2524,6 @@ async def plan_trip(request: TripRequest):
                 destination=request.destination,
                 duration=f"{request.start_date} ~ {request.end_date}",
                 itinerary=itinerary_list,
-                accommodation=accommodation_list,
                 total_cost=f"1인당 {estimated_cost_per_person:,}원",
                 tips=["여행 전 날짜 확인", "필수품 준비", "현지 교통 정보 파악"],
                 trip_hotel_search=trip_hotel_search
@@ -2308,466 +2711,6 @@ if __name__ == "__main__":
     print("=== 서버 시작 ===")
     uvicorn.run(app, host="0.0.0.0", port=8000)  # 모든 IP에서 접근 가능, 8000번 포트 사용
 
-# ========================================
-# 대중교통 정보 서비스 클래스
-# ========================================
-class PublicTransportService:
-    """대중교통 정보를 제공하는 서비스"""
-    
-    def __init__(self):
-        self.bus_info_db = {
-            "부산": {
-                "자갈치시장": {
-                    "description": "부산의 대표적인 수산물 시장으로 신선한 해산물과 다양한 먹거리를 즐길 수 있습니다.",
-                    "address": "부산광역시 중구 자갈치로 52",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "1003번",
-                                "description": "부산역 → 자갈치시장",
-                                "stops": ["부산역", "중앙동", "자갈치시장"],
-                                "frequency": "5-10분 간격",
-                                "fare": "1,300원",
-                                "operating_hours": "05:00 ~ 24:00"
-                            },
-                            {
-                                "route": "1001번",
-                                "description": "서면 → 자갈치시장",
-                                "stops": ["서면역", "부전동", "자갈치시장"],
-                                "frequency": "7-12분 간격",
-                                "fare": "1,300원",
-                                "operating_hours": "05:30 ~ 23:30"
-                            },
-                            {
-                                "route": "100번",
-                                "description": "해운대 → 자갈치시장",
-                                "stops": ["해운대해수욕장", "센텀시티", "자갈치시장"],
-                                "frequency": "10-15분 간격",
-                                "fare": "1,300원",
-                                "operating_hours": "06:00 ~ 23:00"
-                            },
-                            {
-                                "route": "200번",
-                                "description": "동래 → 자갈치시장",
-                                "stops": ["동래역", "온천장", "자갈치시장"],
-                                "frequency": "8-12분 간격",
-                                "fare": "1,300원",
-                                "operating_hours": "05:30 ~ 23:30"
-                            }
-                        ],
-                        "지하철": [
-                            {
-                                "line": "1호선",
-                                "station": "자갈치역",
-                                "description": "자갈치시장 바로 앞에 위치",
-                                "fare": "1,400원",
-                                "operating_hours": "05:30 ~ 24:00"
-                            }
-                        ],
-                        "도보": [
-                            {
-                                "from": "부산역",
-                                "time": "약 15분",
-                                "route": "부산역 → 중앙동 → 자갈치시장",
-                                "tips": "바다 전망을 보며 걸을 수 있는 해안 산책로 이용 가능"
-                            },
-                            {
-                                "from": "남포동",
-                                "time": "약 10분",
-                                "route": "남포동 → 광복로 → 자갈치시장",
-                                "tips": "쇼핑거리를 지나며 구경할 수 있음"
-                            }
-                        ]
-                    },
-                    "tips": [
-                        "자갈치시장은 새벽 3시부터 운영되므로 일찍 가면 더 신선한 해산물을 구할 수 있습니다",
-                        "시장 내 식당에서는 신선한 회와 해산물 요리를 맛볼 수 있습니다",
-                        "주말에는 더 많은 상인들이 나와 다양한 상품을 구경할 수 있습니다",
-                        "시장 주변에 주차장이 있지만 혼잡하므로 대중교통 이용을 권장합니다"
-                    ]
-                },
-                "해운대해수욕장": {
-                    "description": "부산의 대표적인 해수욕장으로 아름다운 백사장과 맑은 바다를 즐길 수 있습니다.",
-                    "address": "부산광역시 해운대구 해운대해변로 264",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "100번",
-                                "description": "자갈치시장 → 해운대해수욕장",
-                                "stops": ["자갈치시장", "센텀시티", "해운대해수욕장"],
-                                "frequency": "10-15분 간격",
-                                "fare": "1,300원",
-                                "operating_hours": "06:00 ~ 23:00"
-                            },
-                            {
-                                "route": "139번",
-                                "description": "부산역 → 해운대해수욕장",
-                                "stops": ["부산역", "센텀시티", "해운대해수욕장"],
-                                "frequency": "8-12분 간격",
-                                "fare": "1,300원",
-                                "operating_hours": "05:30 ~ 23:30"
-                            }
-                        ],
-                        "지하철": [
-                            {
-                                "line": "2호선",
-                                "station": "해운대역",
-                                "description": "해운대해수욕장에서 도보 5분",
-                                "fare": "1,400원",
-                                "operating_hours": "05:30 ~ 24:00"
-                            }
-                        ]
-                    }
-                },
-                "광안리해수욕장": {
-                    "description": "부산의 또 다른 아름다운 해수욕장으로 광안대교의 야경을 감상할 수 있습니다.",
-                    "address": "부산광역시 수영구 광안해변로 264",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "1003번",
-                                "description": "자갈치시장 → 광안리해수욕장",
-                                "stops": ["자갈치시장", "수영구청", "광안리해수욕장"],
-                                "frequency": "10-15분 간격",
-                                "fare": "1,300원",
-                                "operating_hours": "05:00 ~ 24:00"
-                            }
-                        ],
-                        "지하철": [
-                            {
-                                "line": "2호선",
-                                "station": "광안역",
-                                "description": "광안리해수욕장에서 도보 3분",
-                                "fare": "1,400원",
-                                "operating_hours": "05:30 ~ 24:00"
-                            }
-                        ]
-                    }
-                }
-            },
-            "여수": {
-                "여수해양공원": {
-                    "description": "여수의 아름다운 바다를 한눈에 볼 수 있는 공원입니다.",
-                    "address": "전라남도 여수시 돌산공원로 1",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "1번",
-                                "description": "여수역 → 여수해양공원",
-                                "stops": ["여수역", "여수시청", "여수해양공원"],
-                                "frequency": "10-15분 간격",
-                                "fare": "1,200원",
-                                "operating_hours": "06:00 ~ 23:00"
-                            }
-                        ],
-                        "도보": [
-                            {
-                                "from": "여수역",
-                                "time": "약 20분",
-                                "route": "여수역 → 여수시청 → 여수해양공원",
-                                "tips": "해안가를 따라 걸으며 바다 전망을 즐길 수 있습니다"
-                            }
-                        ]
-                    }
-                },
-                "돌산공원": {
-                    "description": "여수의 상징적인 공원으로 아름다운 전망을 제공합니다.",
-                    "address": "전라남도 여수시 돌산공원로 1",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "2번",
-                                "description": "여수해양공원 → 돌산공원",
-                                "stops": ["여수해양공원", "돌산공원"],
-                                "frequency": "15-20분 간격",
-                                "fare": "1,200원",
-                                "operating_hours": "06:00 ~ 23:00"
-                            }
-                        ],
-                        "도보": [
-                            {
-                                "from": "여수해양공원",
-                                "time": "약 15분",
-                                "route": "여수해양공원 → 돌산공원",
-                                "tips": "돌산을 오르며 여수 시내를 한눈에 볼 수 있습니다"
-                            }
-                        ]
-                    }
-                },
-                "여수엑스포역": {
-                    "description": "2012년 여수세계박람회가 열린 곳으로 다양한 전시관과 공원이 있습니다.",
-                    "address": "전라남도 여수시 엑스포대로 1",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "3번",
-                                "description": "돌산공원 → 여수엑스포역",
-                                "stops": ["돌산공원", "여수엑스포역"],
-                                "frequency": "20-25분 간격",
-                                "fare": "1,200원",
-                                "operating_hours": "06:00 ~ 23:00"
-                            }
-                        ],
-                        "지하철": [
-                            {
-                                "line": "여수엑스포선",
-                                "station": "여수엑스포역",
-                                "description": "엑스포역 바로 앞에 위치",
-                                "fare": "1,300원",
-                                "operating_hours": "05:30 ~ 24:00"
-                            }
-                        ]
-                    }
-                }
-            },
-            "제주": {
-                "성산일출봉": {
-                    "description": "제주도 동쪽 끝에 위치한 아름다운 일출 명소입니다.",
-                    "address": "제주특별자치도 서귀포시 성산읍 성산리",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "701번",
-                                "description": "제주시 → 성산일출봉",
-                                "stops": ["제주시", "성산일출봉"],
-                                "frequency": "30-40분 간격",
-                                "fare": "1,200원",
-                                "operating_hours": "06:00 ~ 22:00"
-                            }
-                        ],
-                        "도보": [
-                            {
-                                "from": "성산항",
-                                "time": "약 25분",
-                                "route": "성산항 → 성산일출봉",
-                                "tips": "해안가를 따라 걸으며 아름다운 바다 전망을 즐길 수 있습니다"
-                            }
-                        ]
-                    }
-                },
-                "만장굴": {
-                    "description": "세계자연유산으로 지정된 용암동굴입니다.",
-                    "address": "제주특별자치도 제주시 구좌읍 만장굴길 182",
-                    "transportation": {
-                        "버스": [
-                            {
-                                "route": "702번",
-                                "description": "성산일출봉 → 만장굴",
-                                "stops": ["성산일출봉", "만장굴"],
-                                "frequency": "40-50분 간격",
-                                "fare": "1,200원",
-                                "operating_hours": "06:00 ~ 22:00"
-                            }
-                        ]
-                    }
-                }
-            }
-        }
-    
-    def get_transport_info(self, city: str, destination: str) -> dict:
-        """특정 도시의 목적지로 가는 대중교통 정보를 제공하는 메서드"""
-        try:
-            if city not in self.bus_info_db:
-                return {
-                    "error": f"{city}의 대중교통 정보가 준비되지 않았습니다.",
-                    "available_cities": list(self.bus_info_db.keys())
-                }
-            
-            if destination not in self.bus_info_db[city]:
-                return {
-                    "error": f"{city}의 {destination}으로 가는 대중교통 정보가 준비되지 않았습니다.",
-                    "available_destinations": list(self.bus_info_db[city].keys())
-                }
-            
-            return self.bus_info_db[city][destination]
-            
-        except Exception as e:
-            logger.error(f"대중교통 정보 조회 중 오류: {e}")
-            return {"error": "대중교통 정보 조회 중 오류가 발생했습니다."}
-    
-    def get_all_destinations(self, city: str) -> dict:
-        """특정 도시의 모든 목적지 목록을 제공하는 메서드"""
-        try:
-            if city not in self.bus_info_db:
-                return {
-                    "error": f"{city}의 정보가 준비되지 않았습니다.",
-                    "available_cities": list(self.bus_info_db.keys())
-                }
-            
-            destinations = self.bus_info_db[city]
-            return {
-                "city": city,
-                "destinations": list(destinations.keys()),
-                "total_destinations": len(destinations)
-            }
-            
-        except Exception as e:
-            logger.error(f"목적지 목록 조회 중 오류: {e}")
-            return {"error": "목적지 목록 조회 중 오류가 발생했습니다."}
-    
-    def search_transport_routes(self, city: str, from_location: str, to_location: str) -> dict:
-        """출발지에서 목적지로 가는 대중교통 경로를 검색하는 메서드"""
-        try:
-            if city not in self.bus_info_db:
-                return {"error": f"{city}의 정보가 준비되지 않았습니다."}
-            
-            if to_location not in self.bus_info_db[city]:
-                return {"error": f"{city}의 {to_location} 정보가 준비되지 않았습니다."}
-            
-            # 간단한 경로 검색 (실제로는 더 복잡한 알고리즘이 필요)
-            transport_info = self.bus_info_db[city][to_location]
-            
-            # 출발지별 추천 경로 생성
-            recommended_routes = []
-            
-            if from_location == "부산역":
-                recommended_routes.append({
-                    "route_type": "버스",
-                    "route": "1003번",
-                    "description": "부산역에서 자갈치시장까지 직행",
-                    "estimated_time": "약 20분",
-                    "fare": "1,300원"
-                })
-                recommended_routes.append({
-                    "route_type": "지하철",
-                    "line": "1호선",
-                    "description": "부산역 → 자갈치역",
-                    "estimated_time": "약 15분",
-                    "fare": "1,400원"
-                })
-            elif from_location == "서면":
-                recommended_routes.append({
-                    "route_type": "버스",
-                    "route": "1001번",
-                    "description": "서면에서 자갈치시장까지 직행",
-                    "estimated_time": "약 25분",
-                    "fare": "1,300원"
-                })
-            elif from_location == "해운대":
-                recommended_routes.append({
-                    "route_type": "버스",
-                    "route": "100번",
-                    "description": "해운대에서 자갈치시장까지 직행",
-                    "estimated_time": "약 35분",
-                    "fare": "1,300원"
-                })
-            else:
-                # 일반적인 경로 정보 제공
-                for transport_type, routes in transport_info["transportation"].items():
-                    if transport_type == "버스" and routes:
-                        recommended_routes.append({
-                            "route_type": transport_type,
-                            "route": routes[0]["route"],
-                            "description": routes[0]["description"],
-                            "estimated_time": "시간은 출발지에 따라 다름",
-                            "fare": routes[0]["fare"]
-                        })
-                        break
-            
-            return {
-                "from": from_location,
-                "to": to_location,
-                "city": city,
-                "recommended_routes": recommended_routes,
-                "all_transport_options": transport_info["transportation"]
-            }
-            
-        except Exception as e:
-            logger.error(f"경로 검색 중 오류: {e}")
-            return {"error": "경로 검색 중 오류가 발생했습니다."}
-    
-    def get_itinerary_transport_info(self, city: str, itinerary: List[dict]) -> dict:
-        """여행 일정의 장소들 간 이동 정보를 제공하는 메서드"""
-        try:
-            if city not in self.bus_info_db:
-                return {"error": f"{city}의 정보가 준비되지 않았습니다."}
-            
-            transport_info = {}
-            
-            # 각 일차별로 장소들을 추출하고 이동 정보 생성
-            for day_info in itinerary:
-                day = day_info.get("day", 0)
-                day_transport = []
-                
-                # 오전, 오후, 저녁 활동에서 장소명 추출
-                activities = [
-                    ("오전", day_info.get("morning", "")),
-                    ("오후", day_info.get("afternoon", "")),
-                    ("저녁", day_info.get("evening", ""))
-                ]
-                
-                # 이전 장소에서 다음 장소로의 이동 정보 생성
-                for i in range(len(activities) - 1):
-                    current_activity = activities[i]
-                    next_activity = activities[i + 1]
-                    
-                    # 장소명에서 주요 관광지명 추출 (간단한 키워드 매칭)
-                    current_location = self._extract_location_name(current_activity[1], city)
-                    next_location = self._extract_location_name(next_activity[1], city)
-                    
-                    if current_location and next_location:
-                        route_info = self.search_transport_routes(city, current_location, next_location)
-                        if "error" not in route_info:
-                            day_transport.append({
-                                "from": current_location,
-                                "to": next_location,
-                                "time": f"{current_activity[0]} → {next_activity[0]}",
-                                "transport_info": route_info
-                            })
-                
-                if day_transport:
-                    transport_info[f"day_{day}"] = day_transport
-            
-            return {
-                "city": city,
-                "itinerary_transport": transport_info,
-                "total_days": len(itinerary)
-            }
-            
-        except Exception as e:
-            logger.error(f"일정 이동 정보 생성 중 오류: {e}")
-            return {"error": "일정 이동 정보 생성 중 오류가 발생했습니다."}
-    
-    def _extract_location_name(self, activity_text: str, city: str) -> str:
-        """활동 텍스트에서 장소명을 추출하는 메서드"""
-        try:
-            # 도시별 주요 관광지 키워드 매칭
-            if city in self.bus_info_db:
-                for destination in self.bus_info_db[city].keys():
-                    if destination in activity_text:
-                        return destination
-            
-            # 구체적인 관광지 키워드 매칭 (고유명사 포함)
-            common_keywords = [
-                # 자연 관광지
-                "해수욕장", "해변", "폭포", "산", "봉", "강", "호수", "굴",
-                # 문화/역사 관광지  
-                "사", "궁", "성", "탑", "박물관", "미술관", "문화재",
-                # 도시 인프라
-                "시장", "공원", "역", "항", "다리", "거리", "로",
-                # 행정구역
-                "동", "구", "시", "군", "읍", "면",
-                # 복합 명칭
-                "테마파크", "리조트", "아쿠아리움", "전망대"
-            ]
-            
-            for keyword in common_keywords:
-                if keyword in activity_text:
-                    # 키워드 주변 텍스트에서 장소명 추출 시도
-                    start_idx = activity_text.find(keyword)
-                    if start_idx > 0:
-                        # 키워드 앞의 10글자 정도를 확인하여 장소명 추출
-                        potential_name = activity_text[max(0, start_idx-10):start_idx + len(keyword)]
-                        # 불필요한 문자 제거
-                        clean_name = re.sub(r'[^\w\s가-힣]', '', potential_name).strip()
-                        if clean_name and len(clean_name) > 2:
-                            return clean_name
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"장소명 추출 중 오류: {e}")
-            return None
 
 # ========================================
 # 위치 피드백 수집 API 엔드포인트
@@ -2824,20 +2767,39 @@ async def modify_trip_chat(request: ChatModifyRequest):
 위 수정 요청에 따라 여행 계획을 수정해주세요. 
 
 **수정 규칙:**
-1. 특정 일차의 활동을 바꾸라는 요청이면, 해당 일차(day)의 activities 배열에서 관련 활동을 찾아 새로운 활동으로 교체
-2. "3일차 해운대 마사지"를 다른 활동으로 바꾸라는 요청이면, 3일차 activities에서 "마사지"가 포함된 활동을 새로운 부산 관련 활동으로 교체
-3. 새 활동은 시간대, 장소, 설명을 현실적으로 설정
-4. 나머지 데이터(destination, duration, total_cost, tips 등)는 그대로 유지
-5. JSON 형식을 정확히 유지
+1. **장소 간 교체 요청 처리**:
+   - "2일차 송도해수욕장과 3일차 ○○ 바꿔줘" → 2일차의 송도해수욕장 활동과 3일차의 해당 활동의 위치를 서로 바꿈
+   - "1일차 ○○를 2일차로 옮겨줘" → 1일차의 해당 활동을 2일차로 이동
+   - 시간대는 각 일차의 기존 시간 패턴에 맞게 조정
 
-**중요**: 코드 블록 없이 순수 JSON만 반환하세요.
+2. **활동 교체 요청 처리**:
+   - "3일차 마사지를 해변 산책으로 바꿔줘" → 3일차에서 "마사지" 포함 활동을 "해변 산책" 활동으로 교체
+   - 새 활동은 해당 지역에 실제 존재하는 장소로 설정
+
+3. **시간 조정**:
+   - 활동을 옮기거나 바꿀 때 해당 일차의 다른 활동들과 시간이 겹치지 않도록 조정
+   - 기존 시간 흐름(아침→점심→저녁)을 유지
+
+4. **장소 검증**:
+   - 새로 추가되는 모든 장소는 실제 존재하는 구체적인 관광지명 사용
+   - 가짜 주소나 모호한 장소명 사용 금지
+
+5. **데이터 유지**:
+   - destination, duration, total_cost, tips, accommodation 등 기본 정보는 그대로 유지
+   - JSON 형식을 정확히 유지
+
+**응답 형식**: 코드 블록 없이 순수 JSON만 반환하세요.
+
+**예시 처리**:
+- "2일차 송도해수욕장과 3일차 부산타워 바꿔줘" → 2일차의 송도해수욕장 활동을 3일차로, 3일차의 부산타워 활동을 2일차로 이동
+- "1일차 아침 일정을 다른 곳으로 바꿔줘" → 1일차 아침 활동을 해당 지역의 다른 관광지로 교체
 """
 
         try:
             completion = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "당신은 여행 계획 수정 전문가입니다. 사용자의 요청에 따라 여행 계획을 수정하고 완전한 JSON 데이터를 반환합니다. 코드 블록이나 설명 없이 순수 JSON만 출력하세요."},
+                    {"role": "system", "content": "당신은 여행 계획 수정 전문가입니다. 특히 '일차 간 활동 교체'와 '특정 장소 변경' 요청을 정확히 이해하고 처리합니다. 사용자가 '2일차 A와 3일차 B 바꿔줘'라고 하면 A활동을 3일차로, B활동을 2일차로 정확히 이동시킵니다. 코드 블록이나 설명 없이 순수 JSON만 출력하세요."},
                     {"role": "user", "content": modify_prompt}
                 ],
                 max_tokens=3000,

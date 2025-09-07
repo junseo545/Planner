@@ -6,27 +6,26 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class NaverGeocodingService:
-    """네이버 지오코딩 API를 사용한 위치 검증 서비스"""
+class KakaoGeocodingService:
+    """카카오 지오코딩 API를 사용한 위치 검증 서비스"""
     
     def __init__(self):
-        self.client_id = os.getenv('NAVER_CLIENT_ID')
-        self.client_secret = os.getenv('NAVER_CLIENT_SECRET')
-        self.base_url = 'https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode'
+        self.api_key = os.getenv('KAKAO_API_KEY')
+        self.base_url = 'https://dapi.kakao.com/v2/local/search/address.json'
+        self.coord2address_url = 'https://dapi.kakao.com/v2/local/geo/coord2address.json'
         
-        if not self.client_id or not self.client_secret:
-            logger.warning("네이버 지오코딩 API 키가 설정되지 않았습니다. 위치 검증 기능이 제한됩니다.")
+        if not self.api_key:
+            logger.warning("카카오 지오코딩 API 키가 설정되지 않았습니다. 위치 검증 기능이 제한됩니다.")
     
     def get_location_info(self, address: str) -> Optional[Dict[str, Any]]:
         """주소를 입력받아 위도, 경도 및 행정구역 정보를 반환"""
-        if not self.client_id or not self.client_secret:
-            logger.warning("네이버 API 키가 없어 지오코딩을 수행할 수 없습니다.")
+        if not self.api_key:
+            logger.warning("카카오 API 키가 없어 지오코딩을 수행할 수 없습니다.")
             return None
             
         try:
             headers = {
-                'X-NCP-APIGW-API-KEY-ID': self.client_id,
-                'X-NCP-APIGW-API-KEY': self.client_secret
+                'Authorization': f'KakaoAK {self.api_key}'
             }
             
             params = {
@@ -38,14 +37,16 @@ class NaverGeocodingService:
             
             data = response.json()
             
-            if data.get('status') == 'OK' and data.get('addresses'):
-                address_info = data['addresses'][0]
+            if data.get('documents'):
+                address_info = data['documents'][0]
+                
                 return {
                     'latitude': float(address_info['y']),
                     'longitude': float(address_info['x']),
-                    'address': address_info.get('roadAddress', address_info.get('jibunAddress', '')),
-                    'sido': address_info.get('addressElements', [{}])[0].get('longName', ''),
-                    'sigungu': self._extract_sigungu(address_info.get('addressElements', [])),
+                    'address': address_info.get('address_name', ''),
+                    'road_address': address_info.get('road_address_name', ''),
+                    'sido': address_info.get('address', {}).get('region_1depth_name', ''),
+                    'sigungu': address_info.get('address', {}).get('region_2depth_name', ''),
                     'raw_response': address_info
                 }
             else:
@@ -56,17 +57,10 @@ class NaverGeocodingService:
             logger.error(f"지오코딩 API 오류: {e}")
             return None
     
-    def _extract_sigungu(self, address_elements: list) -> str:
-        """주소 요소에서 시군구 정보 추출"""
-        for element in address_elements:
-            if element.get('types') and 'SIGUGUN' in element.get('types', []):
-                return element.get('longName', '')
-        return ''
-    
     def is_location_in_region(self, location: str, target_region: str) -> Tuple[bool, Optional[str]]:
         """특정 장소가 목표 지역에 있는지 검증"""
         # API 키가 없으면 기본적인 텍스트 매칭으로 검증
-        if not self.client_id or not self.client_secret:
+        if not self.api_key:
             return self._fallback_text_matching(location, target_region)
         
         location_info = self.get_location_info(location)

@@ -391,7 +391,10 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
               <div className="chat-messages">
                 {chatHistory.length === 0 ? (
                   <div className="chat-placeholder">
-                    <p>예시: "2일차 다시 수정해줘", "부산 맛집 더 추가해줘"</p>
+                    <p><strong>일정 교체 예시:</strong></p>
+                    <p>• "2일차 송도해수욕장과 3일차 부산타워 바꿔줘"</p>
+                    <p>• "1일차 아침 일정을 2일차로 옮겨줘"</p>
+                    <p>• "3일차 마사지를 맛집 투어로 바꿔줘"</p>
                   </div>
                 ) : (
                   chatHistory.map((msg, index) => (
@@ -407,7 +410,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
                   value={chatMessage}
                   onChange={(e) => setChatMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="일정 수정 요청을 입력하세요..."
+                  placeholder="예: '2일차 송도해수욕장과 3일차 부산타워 바꿔줘', '1일차 아침 일정을 맛집으로 바꿔줘'"
                   className="chat-input"
                 />
                 <button onClick={handleChatSubmit} className="chat-send-button">

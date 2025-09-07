@@ -20,6 +20,11 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     end_date: ''
   });
 
+  // 진행 상황 관련 상태
+  const [progressStep, setProgressStep] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('');
+  const [progressPercent, setProgressPercent] = useState(0);
+
   // 컴포넌트 마운트 시 저장된 폼 데이터와 단계 복원
   useEffect(() => {
     try {
@@ -79,7 +84,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     '대부도', '제부도', '영종도', '강화도', '교동도', '백령도', '연평도', '옹진', '덕적도', '자월도', '선재도', '승봉도', '신시모도', '팔미도', '월미도', '용유도', '삼목도'
   ];
 
-  const companionTypeOptions = ['연인', '친구', '가족', '혼자', '동료', '기타'];
+  const companionTypeOptions = ['연인', '친구', '가족', '동료', '기타'];
 
   const travelStyleOptions = [
     '자연 관광', '문화 체험', '쇼핑', '액티비티', '휴양', '역사 탐방'
@@ -171,6 +176,8 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     if (formData.guests >= 2) {
       setCurrentStep(3); // 동반자 유형 선택 단계로
     } else {
+      // 혼자 여행하는 경우 companionType을 '혼자'로 자동 설정하고 4단계로 이동
+      setFormData((prev: TripFormData) => ({ ...prev, companionType: '혼자' }));
       setCurrentStep(4); // 여행 스타일 선택 단계로
     }
   };
@@ -209,12 +216,49 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     
+    // 기본 필드 검증
     if ((!formData.region && !formData.customRegion) || !formData.guests || !formData.travelStyle) {
       alert('필수 정보를 모두 입력해주세요.');
       return;
     }
 
+    // 날짜 검증
+    if (!formData.start_date) {
+      alert('여행 시작일을 선택해주세요.');
+      return;
+    }
+
+    if (!formData.end_date) {
+      alert('여행 종료일을 선택해주세요.');
+      return;
+    }
+
+    // 날짜 논리 검증
+    const startDate = new Date(formData.start_date);
+    const endDate = new Date(formData.end_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (startDate < today) {
+      alert('여행 시작일은 오늘 이후 날짜여야 합니다.');
+      return;
+    }
+
+    if (startDate >= endDate) {
+      alert('여행 시작일은 종료일보다 이전이어야 합니다.');
+      return;
+    }
+
+    const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysDiff > 4) {
+      alert('여행 기간은 최대 4박 5일까지 가능합니다.');
+      return;
+    }
+
     setLoading(true);
+    setProgressStep(0);
+    setProgressMessage('여행 계획 생성을 시작합니다...');
+    setProgressPercent(0);
     
     try {
       // 백엔드로 전송할 데이터 준비
@@ -233,14 +277,105 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       };
 
       // 환경에 따른 API URL 설정
-      const apiUrl = import.meta.env.PROD 
-        ? 'https://planner-backend-3bcz.onrender.com/plan-trip'
-        : 'http://localhost:8000/plan-trip';
+      const baseUrl = import.meta.env.PROD 
+        ? 'https://planner-backend-3bcz.onrender.com'
+        : 'http://localhost:8000';
+      
+      const progressUrl = `${baseUrl}/plan-trip-progress?destination=${encodeURIComponent(submitData.destination)}&start_date=${submitData.start_date}&end_date=${submitData.end_date}&budget=${encodeURIComponent(submitData.budget)}&guests=${submitData.guests}&rooms=${submitData.rooms}`;
+      const planUrl = `${baseUrl}/plan-trip`;
       
       console.log('전송할 데이터:', submitData);
-      console.log('API URL:', apiUrl);
+      console.log('Progress URL:', progressUrl);
+      console.log('Plan URL:', planUrl);
       
-      const response = await axios.post<TripPlan>(apiUrl, submitData);
+      // SSE로 진행 상황 받기
+      const eventSource = new EventSource(progressUrl);
+      
+      // 8초 후에 자동으로 실제 API 호출 시작 (SSE가 끊어져도 진행)
+      const progressTimeout = setTimeout(() => {
+        eventSource.close();
+        setProgressMessage('여행 계획을 최종 완성하고 있습니다...');
+        setProgressPercent(85);
+        generateTripPlan(submitData, planUrl);
+      }, 8000);
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.step) {
+            setProgressStep(data.step);
+            setProgressMessage(data.message);
+            setProgressPercent(data.progress);
+          }
+          
+          if (data.completed) {
+            clearTimeout(progressTimeout);
+            eventSource.close();
+            // 진행 상황이 완료되면 실제 여행 계획 요청
+            setProgressMessage('여행 계획을 최종 완성하고 있습니다...');
+            generateTripPlan(submitData, planUrl);
+          }
+          
+          if (data.error) {
+            clearTimeout(progressTimeout);
+            eventSource.close();
+            console.error('Progress error:', data.error);
+            setLoading(false);
+            alert('여행 계획 생성 중 오류가 발생했습니다.');
+          }
+        } catch (error) {
+          console.error('Progress parsing error:', error);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('EventSource error:', error);
+        clearTimeout(progressTimeout);
+        eventSource.close();
+        // 진행 상황 실패 시에도 여행 계획은 생성 시도
+        setProgressMessage('진행 상황 연결이 끊어졌습니다. 여행 계획을 계속 생성합니다...');
+        setProgressPercent(85);
+        generateTripPlan(submitData, planUrl);
+      };
+      
+    } catch (error: any) {
+      console.error('여행 계획 생성 오류:', error);
+      setLoading(false);
+      alert('여행 계획 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  const generateTripPlan = async (submitData: any, planUrl: string) => {
+    let progressInterval: NodeJS.Timeout | null = null;
+    
+    try {
+      // 실제 API 호출 시작
+      setProgressMessage('AI가 최종 여행 계획을 완성하고 있습니다...');
+      setProgressPercent(88);
+      
+      // 점진적 진행률 시뮬레이션
+      progressInterval = setInterval(() => {
+        setProgressPercent(prev => {
+          if (prev < 98) {
+            return prev + 1;
+          }
+          return prev;
+        });
+      }, 800); // 0.8초마다 1%씩 증가
+      
+      const response = await axios.post<TripPlan>(planUrl, submitData);
+      
+      // API 완료 시 인터벌 정리하고 100% 완료
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
+      setProgressMessage('여행 계획이 완성되었습니다!');
+      setProgressPercent(100);
+      
+      // 잠시 100% 상태를 보여준 후 완료
+      await new Promise(resolve => setTimeout(resolve, 800));
       
       // 여행 계획 생성 성공 시 플래너 데이터 삭제
       sessionStorage.removeItem('tripPlannerFormData');
@@ -250,6 +385,12 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       onTripGenerated(response.data);
     } catch (error: any) {
       console.error('여행 계획 생성 오류:', error);
+      
+      // 에러 발생 시에도 인터벌 정리
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
       console.error('오류 상세:', error.response?.data);
       console.error('HTTP 상태:', error.response?.status);
       
@@ -466,6 +607,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             onChange={handleInputChange}
             className="form-input"
             min={new Date().toISOString().split('T')[0]}
+            required
           />
         </div>
 
@@ -483,14 +625,15 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             min={getMinEndDate(formData.start_date)}
             max={getMaxEndDate(formData.start_date)}
             disabled={!formData.start_date}
+            required
           />
         </div>
       </div>
 
       <button
         type="submit"
-        disabled={loading}
-        className={`submit-button ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+        disabled={loading || !formData.start_date || !formData.end_date}
+        className={`submit-button ${(loading || !formData.start_date || !formData.end_date) ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
         {loading ? (
           <>
@@ -509,33 +652,90 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   return (
     <div className="planner-container">
-      <div className="planner-header">
-        <h2 className="planner-title">
-          국내여행 플래너
-        </h2>
-        <p className="planner-subtitle">
-          단계별로 선택하여 맞춤 여행 계획을 만들어보세요
-        </p>
-      </div>
+      {loading ? (
+        <div className="progress-container">
+          <div className="planner-header">
+            <h2 className="planner-title">
+              여행 계획 생성중
+            </h2>
+            <p className="planner-subtitle">
+              AI가 맞춤형 여행 계획을 생성하고 있습니다
+            </p>
+          </div>
+          
+          <div className="generation-progress">
+            <div className="progress-info">
+              <div className="progress-step-indicator">
+                <span className="step-number">{progressStep}/7</span>
+                <span className="step-message">{progressMessage}</span>
+              </div>
+              
+              <div className="progress-bar-container">
+                <div 
+                  className="progress-bar-fill" 
+                  style={{ width: `${progressPercent}%` }}
+                ></div>
+              </div>
+              
+              <div className="progress-percentage">
+                {progressPercent}%
+              </div>
+            </div>
+            
+            {/* 단계별 상세 내용은 숨김 - 게이지만 표시 */}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="planner-header">
+            <h2 className="planner-title">
+              국내여행 플래너
+            </h2>
+            <p className="planner-subtitle">
+              단계별로 선택하여 맞춤 여행 계획을 만들어보세요
+            </p>
+          </div>
 
       {/* 진행 단계 표시 */}
       <div className="progress-bar">
-        {[1, 2, 3, 4, 5, 6].map((step) => (
-          <div
-            key={step}
-            className={`progress-step ${currentStep >= step ? 'active' : ''} ${currentStep === step ? 'current' : ''}`}
-          >
-            <span className="progress-number">{step}</span>
-            <span className="progress-label">
-              {step === 1 && '지역 선택'}
-              {step === 2 && '인원수'}
-              {step === 3 && '동반자 유형'}
-              {step === 4 && '여행 스타일'}
-              {step === 5 && '여행 페이스'}
-              {step === 6 && '추가 정보'}
-            </span>
+        {(() => {
+          // 혼자 여행하는 경우 동반자 유형 단계를 제외
+          const isSoloTravel = formData.guests === 1;
+          const steps = isSoloTravel 
+            ? [
+                { num: 1, label: '지역 선택' },
+                { num: 2, label: '인원수' },
+                { num: 3, label: '여행 스타일' },
+                { num: 4, label: '여행 페이스' },
+                { num: 5, label: '추가 정보' }
+              ]
+            : [
+                { num: 1, label: '지역 선택' },
+                { num: 2, label: '인원수' },
+                { num: 3, label: '동반자 유형' },
+                { num: 4, label: '여행 스타일' },
+                { num: 5, label: '여행 페이스' },
+                { num: 6, label: '추가 정보' }
+              ];
+          
+          return steps.map((step) => {
+            // 혼자 여행인 경우 currentStep 조정
+            let adjustedCurrentStep = currentStep;
+            if (isSoloTravel && currentStep > 2) {
+              adjustedCurrentStep = currentStep - 1;
+            }
+            
+            return (
+              <div
+                key={step.num}
+                className={`progress-step ${adjustedCurrentStep >= step.num ? 'active' : ''} ${adjustedCurrentStep === step.num ? 'current' : ''}`}
+              >
+                <span className="progress-number">{step.num}</span>
+                <span className="progress-label">{step.label}</span>
           </div>
-        ))}
+            );
+          });
+        })()}
       </div>
 
       {/* 현재 선택된 정보 요약 */}
@@ -551,9 +751,14 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
                <strong>인원수:</strong> {formData.guests}명
              </div>
           )}
-          {currentStep >= 3 && formData.companionType && (
+          {currentStep >= 3 && formData.companionType && formData.guests > 1 && (
             <div className="summary-item">
               <strong>동반자:</strong> {formData.companionType}
+            </div>
+           )}
+           {formData.guests === 1 && formData.companionType === '혼자' && (
+            <div className="summary-item">
+              <strong>여행 유형:</strong> 혼자 여행
             </div>
            )}
                      {currentStep >= 4 && formData.interests.length > 0 && (
@@ -592,6 +797,8 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           {currentStep === 6 && renderStep6()}
         </form>
       </div>
+        </>
+      )}
     </div>
   );
 };
