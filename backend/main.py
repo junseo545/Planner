@@ -39,7 +39,7 @@ class KakaoLocalService:
         self.api_key = api_key or KAKAO_API_KEY
         self.base_url = "https://dapi.kakao.com/v2/local/search/keyword.json"
     
-    def search_events(self, destination: str, start_date: str, end_date: str) -> List[dict]:
+    def search_place(self, query: str, region: str = None) -> dict:
         """목적지와 날짜에 맞는 축제/행사 정보를 검색하는 메서드"""
         try:
             # 날짜 정보 파싱
@@ -697,47 +697,167 @@ class KakaoLocalService:
             logger.error(f"카카오 API 요청 실패: {str(e)}")
             return {'found': False, 'error': str(e), 'query': query}
             
-    def _extract_place_name_from_title(self, title: str) -> list:
-        """제목에서 실제 장소명을 추출합니다."""
-        import re
-        
+    def _clean_place_name(self, place_name: str) -> str:
+        """장소명에서 불필요한 단어들을 제거합니다."""
         # 불필요한 단어들 제거
         remove_words = [
             '방문', '관람', '투어', '체험', '구경', '산책', '둘러보기', '탐방', '견학',
             '가기', '보기', '하기', '즐기기', '걷기', '오르기', '내려가기', '올라가기',
             '에서', '까지', '으로', '를', '을', '의', '에', '와', '과', '도', '만',
             '점심', '저녁', '아침', '식사', '먹기', '맛보기', '시식',
-            '휴식', '쉬기', '잠시', '잠깐'
+            '휴식', '쉬기', '잠시', '잠깐', '구입', '쇼핑', '구매'
         ]
+        
+        cleaned = place_name
+        for word in remove_words:
+            cleaned = cleaned.replace(word, '').strip()
+        
+        return cleaned if cleaned else place_name
+
+    def _is_relevant_result(self, search_keyword: str, search_result: dict, original_title: str) -> bool:
+        """검색 결과가 원본 키워드와 관련성이 있는지 확인합니다."""
+        result_name = search_result.get('name', '').lower()
+        result_category = search_result.get('category', '').lower()
+        
+        # 원본 제목과 검색 키워드에서 핵심 키워드 추출
+        original_keywords = self._extract_core_keywords(original_title.lower())
+        search_keywords = self._extract_core_keywords(search_keyword.lower())
+        
+        # 핵심 키워드가 검색 결과에 포함되어 있는지 확인
+        for keyword in original_keywords + search_keywords:
+            if len(keyword) > 2 and keyword in result_name:
+                return True
+        
+        # 부적절한 카테고리 필터링 (요양, 병원, 의료 등)
+        inappropriate_categories = [
+            '요양', '병원', '의료', '클리닉', '한의원', '치과', '약국',
+            '부동산', '학원', '학교', '사무실', '회사'
+        ]
+        
+        for inappropriate in inappropriate_categories:
+            if inappropriate in result_name or inappropriate in result_category:
+                logger.warning(f"부적절한 카테고리 감지: {result_name} ({result_category})")
+                return False
+        
+        return True
+    
+    def _extract_core_keywords(self, text: str) -> list:
+        """텍스트에서 핵심 키워드를 추출합니다."""
+        import re
+        
+        # 한글, 영문, 숫자만 남기고 나머지 제거
+        cleaned = re.sub(r'[^\w\s]', ' ', text)
+        words = cleaned.split()
+        
+        # 의미있는 키워드만 추출 (2글자 이상)
+        core_keywords = []
+        for word in words:
+            if len(word) >= 2:
+                core_keywords.append(word)
+        
+        return core_keywords
+
+    def _extract_specific_place_names(self, title: str) -> list:
+        """제목에서 구체적인 장소명을 우선적으로 추출합니다."""
+        import re
+        
+        candidates = []
+        
+        # 1. 복합 장소명 패턴 (예: "경주 양동마을", "부산 해운대 해수욕장")
+        # 지역명 + 구체적 장소명 패턴
+        region_place_patterns = [
+            r'(\w+)\s+(\w+마을)',      # 경주 양동마을
+            r'(\w+)\s+(\w+\s*해수욕장)', # 부산 해운대 해수욕장
+            r'(\w+)\s+(\w+\s*유적지)',   # 경주 월성 유적지
+            r'(\w+)\s+(\w+\s*박물관)',   # 경주 국립박물관
+            r'(\w+)\s+(\w+\s*공원)',     # 부산 용두산 공원
+            r'(\w+)\s+(\w+\s*사찰)',     # 경주 불국사
+            r'(\w+)\s+(\w+\s*궁)',       # 경주 동궁
+            r'(\w+)\s+(\w+\s*성)',       # 경주 월성
+            r'(\w+)\s+(\w+\s*터)',       # 경주 첨성대터
+            r'(\w+)\s+(\w+\s*다리)',     # 부산 광안대교
+            r'(\w+)\s+(\w+\s*시장)',     # 부산 자갈치시장
+        ]
+        
+        for pattern in region_place_patterns:
+            matches = re.findall(pattern, title)
+            for match in matches:
+                if len(match) == 2:
+                    region, place = match
+                    # 전체 장소명을 우선순위로
+                    full_place = f"{region} {place}".strip()
+                    candidates.append(full_place)
+                    # 구체적인 장소명만도 추가 (2순위)
+                    if place.strip() not in candidates:
+                        candidates.append(place.strip())
+        
+        # 2. 단독 구체적 장소명 패턴
+        specific_patterns = [
+            r'(\w+마을)',      # 양동마을, 하회마을
+            r'(\w+\s*해수욕장)', # 해운대해수욕장, 광안리 해수욕장
+            r'(\w+\s*해변)',     # 정동진 해변, 경포 해변
+            r'(\w+\s*유적지)',   # 월성 유적지, 대릉원 유적지
+            r'(\w+\s*박물관)',   # 국립경주박물관, 부산시립박물관
+            r'(\w+\s*미술관)',   # 부산시립미술관
+            r'(\w+\s*공원)',     # 용두산공원, 해운대공원
+            r'(\w+사)',         # 불국사, 석굴암
+            r'(\w+궁)',         # 동궁, 월궁
+            r'(\w+성)',         # 월성, 동성
+            r'(\w+대)',         # 첨성대, 석빙고
+            r'(\w+\s*다리)',     # 광안대교, 부산대교
+            r'(\w+\s*시장)',     # 자갈치시장, 국제시장
+            r'(\w+\s*타워)',     # 부산타워, 롯데타워
+            r'(\w+\s*센터)',     # 벡스코, 문화센터
+            r'(\w+\s*역)',       # 정동진역, 강릉역
+        ]
+        
+        for pattern in specific_patterns:
+            matches = re.findall(pattern, title)
+            for match in matches:
+                if isinstance(match, str) and len(match.strip()) > 1:
+                    # 부적절한 단어 필터링
+                    if self._is_real_place_name(match.strip()) and match.strip() not in candidates:
+                        candidates.append(match.strip())
+        
+        return candidates
+
+    def _extract_place_name_from_title(self, title: str) -> list:
+        """제목에서 실제 장소명을 추출합니다."""
+        import re
         
         # 장소명 후보들
         candidates = []
         
-        # 1. 원본 제목
-        candidates.append(title.strip())
+        # 1. 구체적인 장소명 패턴 우선 추출 (가장 중요!)
+        specific_place_candidates = self._extract_specific_place_names(title)
+        candidates.extend(specific_place_candidates)
         
-        # 2. 불필요한 단어들 제거
-        cleaned_title = title
-        for word in remove_words:
-            cleaned_title = cleaned_title.replace(word, '').strip()
-        if cleaned_title and cleaned_title != title:
-            candidates.append(cleaned_title)
+        # 2. 정제된 제목 (불필요한 단어 제거)
+        cleaned_title = self._clean_place_name(title)
+        if cleaned_title and cleaned_title != title and len(cleaned_title.strip()) > 1:
+            # 이미 구체적인 장소명이 있으면 중복 방지
+            if cleaned_title.strip() not in candidates:
+                candidates.append(cleaned_title.strip())
         
         # 3. 괄호 안 내용 제거
         no_brackets = re.sub(r'\([^)]*\)', '', title).strip()
-        if no_brackets and no_brackets != title:
-            candidates.append(no_brackets)
+        if no_brackets and no_brackets != title and len(no_brackets.strip()) > 1:
+            # 불필요한 단어도 함께 제거
+            no_brackets_cleaned = self._clean_place_name(no_brackets)
+            if no_brackets_cleaned and no_brackets_cleaned not in candidates:
+                candidates.append(no_brackets_cleaned)
         
-        # 4. 첫 번째 단어만 (보통 장소명이 앞에 옴)
-        first_word = title.split()[0] if title.split() else ""
-        if first_word and len(first_word) > 1:
-            candidates.append(first_word)
-        
-        # 5. 마지막 단어 제거 (보통 동작 단어)
+        # 4. 마지막 단어 제거 (보통 동작 단어)
         words = title.split()
         if len(words) > 1:
-            without_last = ' '.join(words[:-1])
-            candidates.append(without_last)
+            without_last = ' '.join(words[:-1]).strip()
+            if len(without_last) > 1 and without_last not in candidates:
+                candidates.append(without_last)
+        
+        # 5. 첫 번째 단어만 (지역명, 최후 수단)
+        first_word = title.split()[0] if title.split() else ""
+        if first_word and len(first_word) > 1 and first_word not in candidates:
+            candidates.append(first_word)
         
         # 중복 제거 및 빈 문자열 제거
         unique_candidates = []
@@ -747,6 +867,74 @@ class KakaoLocalService:
                 unique_candidates.append(candidate)
         
         return unique_candidates
+
+    def _is_detailed_address(self, text: str) -> bool:
+        """텍스트가 상세 주소인지 확인합니다."""
+        import re
+        
+        # 상세 주소 패턴 (시/군/구/동/리/면 등이 포함된 경우)
+        address_patterns = [
+            r'\w+시\s+\w+구',      # 서울시 강남구
+            r'\w+시\s+\w+군',      # 경기도 평택시
+            r'\w+도\s+\w+시',      # 경기도 수원시
+            r'\w+시\s+\w+면',      # 강릉시 강동면
+            r'\w+구\s+\w+동',      # 강남구 역삼동
+            r'\w+동\s+\w+리',      # 강동면 정동진리
+            r'\w+면\s+\w+리',      # 강동면 정동진리
+            r'\d+번지',            # 123번지
+            r'\d+-\d+',            # 123-45
+        ]
+        
+        for pattern in address_patterns:
+            if re.search(pattern, text):
+                return True
+                
+        # 주소 키워드가 많이 포함된 경우
+        address_keywords = ['시', '군', '구', '동', '리', '면', '번지', '로', '길']
+        keyword_count = sum(1 for keyword in address_keywords if keyword in text)
+        
+        # 3개 이상의 주소 키워드가 있으면 상세 주소로 판단
+        return keyword_count >= 3
+
+    def _is_real_place_name(self, text: str) -> bool:
+        """텍스트가 실제 장소명인지 확인합니다."""
+        import re
+        
+        # 명확한 장소명 패턴들
+        place_patterns = [
+            r'\w+성$',          # 동래읍성, 경복궁성
+            r'\w+궁$',          # 경복궁, 창덕궁
+            r'\w+사$',          # 불국사, 해인사
+            r'\w+암$',          # 석굴암, 보문암
+            r'\w+대$',          # 첨성대, 석빙고
+            r'\w+관$',          # 박물관, 미술관
+            r'\w+원$',          # 공원, 동물원
+            r'\w+장$',          # 시장, 광장
+            r'\w+교$',          # 다리 (광안대교)
+            r'\w+탑$',          # 탑, 타워
+            r'\w+마을$',        # 양동마을, 하회마을
+            r'\w+해변$',        # 정동진해변
+            r'\w+해수욕장$',    # 해운대해수욕장
+            r'\w+유적지$',      # 월성유적지
+            r'\w+센터$',        # 문화센터
+            r'\w+역$',          # 기차역
+        ]
+        
+        for pattern in place_patterns:
+            if re.search(pattern, text):
+                return True
+        
+        # 부적절한 단어들 (장소명이 아닌 것들)
+        non_place_words = [
+            '역사', '문화', '전통', '체험', '관람', '구경', '산책', '탐방',
+            '방문', '투어', '여행', '휴식', '감상', '관찰', '학습'
+        ]
+        
+        # 단일 단어이면서 부적절한 단어인 경우
+        if text.strip() in non_place_words:
+            return False
+            
+        return True  # 기본적으로는 장소명으로 간주
 
     def verify_and_enrich_location(self, activity: dict, region: str = None) -> dict:
         """
@@ -767,17 +955,39 @@ class KakaoLocalService:
         # 검색 키워드 우선순위 생성
         search_keywords = []
         
-        # 1. location이 있으면 우선 사용
-        if location and location.strip():
-            search_keywords.append(location.strip())
+        # 1. location이 구체적인 장소명이면 최우선 (상세주소가 아닌 경우만)
+        if location and location.strip() and not self._is_detailed_address(location.strip()):
+            # location이 실제 장소명인지 확인
+            if self._is_real_place_name(location.strip()):
+                search_keywords.append(location.strip())
+                # location에서도 불필요한 단어 제거한 버전
+                cleaned_location = self._clean_place_name(location.strip())
+                if cleaned_location != location.strip() and cleaned_location not in search_keywords:
+                    search_keywords.append(cleaned_location)
         
-        # 2. title에서 장소명 추출
+        # 2. title에서 구체적인 장소명 추출
         extracted_places = self._extract_place_name_from_title(title)
-        search_keywords.extend(extracted_places)
+        # location과 중복되지 않는 것만 추가
+        for place in extracted_places:
+            if place not in search_keywords:
+                search_keywords.append(place)
         
-        # 3. 원본 title도 포함 (마지막 순위)
+        # 3. location이 상세 주소인 경우 처리
+        if location and location.strip() and self._is_detailed_address(location.strip()):
+            # 상세 주소는 후순위로 (보조 수단)
+            logger.info(f"상세 주소 감지, 후순위로 이동: {location.strip()}")
+        elif location and location.strip() and not self._is_real_place_name(location.strip()):
+            # location이 장소명이 아닌 경우도 후순위로
+            logger.info(f"일반적이지 않은 location, 후순위로 이동: {location.strip()}")
+        
+        # 3. 원본 title도 포함 (중간 순위)
         if title not in search_keywords:
             search_keywords.append(title)
+            
+        # 4. 상세 주소는 최후 수단으로만 사용
+        if location and location.strip() and self._is_detailed_address(location.strip()):
+            if location.strip() not in search_keywords:
+                search_keywords.append(location.strip())
         
         logger.info(f"🔍 검색 키워드 목록: {search_keywords}")
         
@@ -793,9 +1003,14 @@ class KakaoLocalService:
             search_result = self.search_place(keyword, region)
             
             if search_result and search_result.get('found'):
-                successful_keyword = keyword
-                logger.info(f"✅ 검색 성공: '{keyword}' -> {search_result.get('name')}")
-                break
+                # 검색 결과의 관련성 검증
+                if self._is_relevant_result(keyword, search_result, title):
+                    successful_keyword = keyword
+                    logger.info(f"✅ 검색 성공: '{keyword}' -> {search_result.get('name')}")
+                    break
+                else:
+                    logger.info(f"❌ 검색 결과 관련성 낮음: '{keyword}' -> {search_result.get('name')}")
+                    search_result = None
             else:
                 logger.info(f"❌ 검색 실패: '{keyword}'")
         
@@ -2623,83 +2838,6 @@ async def health_check():
 # 대중교통 정보 API 엔드포인트
 # ========================================
 
-@app.get("/transport/info/{city}/{destination}")
-async def get_transport_info(city: str, destination: str):
-    """특정 도시의 목적지로 가는 대중교통 정보를 조회하는 API"""
-    try:
-        transport_service = PublicTransportService()
-        info = transport_service.get_transport_info(city, destination)
-        return {
-            "city": city,
-            "destination": destination,
-            "transport_info": info
-        }
-    except Exception as e:
-        logger.error(f"대중교통 정보 조회 중 오류 발생: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"대중교통 정보 조회 중 오류가 발생했습니다: {str(e)}")
-
-@app.get("/transport/destinations/{city}")
-async def get_all_destinations(city: str):
-    """특정 도시의 모든 목적지 목록을 조회하는 API"""
-    try:
-        transport_service = PublicTransportService()
-        destinations = transport_service.get_all_destinations(city)
-        return destinations
-    except Exception as e:
-        logger.error(f"목적지 목록 조회 중 오류 발생: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"목적지 목록 조회 중 오류가 발생했습니다: {str(e)}")
-
-@app.get("/transport/route")
-async def search_transport_route(
-    city: str,
-    from_location: str,
-    to_location: str
-):
-    """출발지에서 목적지로 가는 대중교통 경로를 검색하는 API"""
-    try:
-        transport_service = PublicTransportService()
-        route_info = transport_service.search_transport_routes(city, from_location, to_location)
-        return route_info
-    except Exception as e:
-        logger.error(f"경로 검색 중 오류 발생: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"경로 검색 중 오류가 발생했습니다: {str(e)}")
-
-@app.get("/transport/busan/jagalchi")
-async def get_jagalchi_transport_info():
-    """부산 자갈치시장으로 가는 대중교통 정보를 조회하는 전용 API"""
-    try:
-        transport_service = PublicTransportService()
-        info = transport_service.get_transport_info("부산", "자갈치시장")
-        return {
-            "destination": "부산 자갈치시장",
-            "description": "부산의 대표적인 수산물 시장으로 신선한 해산물과 다양한 먹거리를 즐길 수 있습니다.",
-            "transport_info": info
-        }
-    except Exception as e:
-        logger.error(f"자갈치시장 대중교통 정보 조회 중 오류 발생: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"자갈치시장 대중교통 정보 조회 중 오류가 발생했습니다: {str(e)}")
-
-@app.get("/transport/itinerary/{city}")
-async def get_itinerary_transport_info(city: str, itinerary: str):
-    """특정 도시의 여행 일정에 대한 대중교통 정보를 조회하는 API"""
-    try:
-        # itinerary는 JSON 문자열로 전달됨
-        import json
-        itinerary_data = json.loads(itinerary)
-        
-        transport_service = PublicTransportService()
-        transport_info = transport_service.get_itinerary_transport_info(city, itinerary_data)
-        
-        return {
-            "city": city,
-            "itinerary": itinerary_data,
-            "transport_info": transport_info
-        }
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="잘못된 일정 형식입니다. JSON 형식으로 전달해주세요.")
-    except Exception as e:
-        logger.error(f"일정 대중교통 정보 조회 중 오류 발생: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"일정 대중교통 정보 조회 중 오류가 발생했습니다: {str(e)}")
 
 # ========================================
 # 메인 실행 부분

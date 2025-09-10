@@ -22,6 +22,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   // 진행 상황 관련 상태
   const [progressStep, setProgressStep] = useState(0);
+  const [totalSteps, setTotalSteps] = useState(11);
   const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
 
@@ -291,13 +292,13 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       // SSE로 진행 상황 받기
       const eventSource = new EventSource(progressUrl);
       
-      // 8초 후에 자동으로 실제 API 호출 시작 (SSE가 끊어져도 진행)
+      // 13초 후에 자동으로 실제 API 호출 시작 (SSE가 끊어져도 진행)
       const progressTimeout = setTimeout(() => {
         eventSource.close();
-        setProgressMessage('여행 계획을 최종 완성하고 있습니다...');
-        setProgressPercent(85);
+        setProgressMessage('AI가 여행 계획을 생성하고 있습니다...');
+        setProgressPercent(90);
         generateTripPlan(submitData, planUrl);
-      }, 8000);
+      }, 13000);
       
       eventSource.onmessage = (event) => {
         try {
@@ -307,13 +308,28 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             setProgressStep(data.step);
             setProgressMessage(data.message);
             setProgressPercent(data.progress);
+            
+            // total_steps 정보가 있으면 업데이트
+            if (data.total_steps) {
+              setTotalSteps(data.total_steps);
+            }
+            
+            // 90%에 도달하면 실제 API 호출 시작
+            if (data.progress >= 90) {
+              clearTimeout(progressTimeout);
+              eventSource.close();
+              // 90% 진행 후 실제 여행 계획 생성 시작
+              setTimeout(() => {
+                generateTripPlan(submitData, planUrl);
+              }, 500); // 0.5초 후 API 호출 시작
+            }
           }
           
           if (data.completed) {
             clearTimeout(progressTimeout);
             eventSource.close();
             // 진행 상황이 완료되면 실제 여행 계획 요청
-            setProgressMessage('여행 계획을 최종 완성하고 있습니다...');
+            setProgressMessage('AI가 여행 계획을 생성하고 있습니다...');
             generateTripPlan(submitData, planUrl);
           }
           
@@ -335,7 +351,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
         eventSource.close();
         // 진행 상황 실패 시에도 여행 계획은 생성 시도
         setProgressMessage('진행 상황 연결이 끊어졌습니다. 여행 계획을 계속 생성합니다...');
-        setProgressPercent(85);
+        setProgressPercent(90);
         generateTripPlan(submitData, planUrl);
       };
       
@@ -350,32 +366,41 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     let progressInterval: NodeJS.Timeout | null = null;
     
     try {
-      // 실제 API 호출 시작
-      setProgressMessage('AI가 최종 여행 계획을 완성하고 있습니다...');
-      setProgressPercent(88);
+      // 실제 API 호출 시작 - 90%에서 시작
+      setProgressMessage('🤖 AI가 여행 계획을 생성하고 있습니다...');
+      setProgressPercent(91);
       
-      // 점진적 진행률 시뮬레이션
+      // 더 자연스러운 점진적 진행률 시뮬레이션 (91% → 98%)
       progressInterval = setInterval(() => {
         setProgressPercent(prev => {
           if (prev < 98) {
-            return prev + 1;
+            // 처음엔 빠르게, 나중엔 천천히 증가하도록 조정
+            const increment = prev < 95 ? 1 : 0.5;
+            return Math.min(prev + increment, 98);
           }
           return prev;
         });
-      }, 800); // 0.8초마다 1%씩 증가
+      }, 1200); // 1.2초마다 증가 (더 여유있게)
       
+      console.log('🚀 OpenAI API 호출 시작...');
       const response = await axios.post<TripPlan>(planUrl, submitData);
+      console.log('✅ OpenAI API 응답 완료');
       
       // API 완료 시 인터벌 정리하고 100% 완료
       if (progressInterval) {
         clearInterval(progressInterval);
         progressInterval = null;
       }
-      setProgressMessage('여행 계획이 완성되었습니다!');
+      
+      // 99% → 100%로 마무리
+      setProgressMessage('🎉 여행 계획이 완성되었습니다!');
+      setProgressPercent(99);
+      
+      await new Promise(resolve => setTimeout(resolve, 300));
       setProgressPercent(100);
       
       // 잠시 100% 상태를 보여준 후 완료
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       // 여행 계획 생성 성공 시 플래너 데이터 삭제
       sessionStorage.removeItem('tripPlannerFormData');
@@ -666,7 +691,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           <div className="generation-progress">
             <div className="progress-info">
               <div className="progress-step-indicator">
-                <span className="step-number">{progressStep}/7</span>
+                <span className="step-number">{progressStep}/{totalSteps}</span>
                 <span className="step-message">{progressMessage}</span>
               </div>
               
