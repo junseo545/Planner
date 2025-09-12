@@ -183,9 +183,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     }
   };
 
-  const handleCompanionTypeSelect = (): void => {
-    setCurrentStep(4);
-  };
 
   const handleTravelStyleSelect = (): void => {
     // 여행 스타일이 선택되었는지 확인
@@ -515,6 +512,10 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             type="button"
             onClick={() => {
               setFormData((prev: TripFormData) => ({ ...prev, companionType: option }));
+              // 선택 즉시 다음 단계로 이동
+              setTimeout(() => {
+                setCurrentStep(4);
+              }, 100); // 약간의 지연을 두어 선택 상태가 먼저 반영되도록
             }}
             className={`companion-option ${formData.companionType === option ? 'selected' : ''}`}
           >
@@ -522,14 +523,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        onClick={handleCompanionTypeSelect}
-        disabled={!formData.companionType}
-        className="next-button"
-      >
-        다음 <ArrowRight />
-      </button>
     </div>
   );
 

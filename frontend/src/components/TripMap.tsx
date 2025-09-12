@@ -182,25 +182,117 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
       console.log('Map created successfully');
       setIsLoading(false);
 
-      // 지오코딩이 가능한지 확인
+      // Places API가 가능한지 확인
       if (window.kakao.maps.services && locations.length > 0) {
-        // 지오코딩을 위한 geocoder 객체 생성
-        const geocoder = new window.kakao.maps.services.Geocoder();
+        // Places API를 위한 Places 객체 생성
+        const places = new window.kakao.maps.services.Places();
         const bounds = new window.kakao.maps.LatLngBounds();
         const validCoords: any[] = [];
 
         let validLocations = 0;
         let processedCount = 0;
 
-        // 각 위치에 대해 지오코딩 수행 (여러 검색 방법 시도)
+        // 각 위치에 대해 Places API로 검색 수행
         const processLocation = async (location: any, index: number) => {
-          const searchTerms = [
+          // 지역명을 구체적인 명소명으로 변환하는 함수
+          const enhanceLocationQuery = (query: string) => {
+            const queryLower = query.toLowerCase();
+            
+            // 주요 지역별 대표 명소 매핑
+            const locationEnhancements = {
+              '해운대': '해운대해수욕장',
+              '해운대구': '해운대해수욕장',
+              '부산 해운대': '부산 해운대해수욕장',
+              '부산 해운대구': '부산 해운대해수욕장',
+              '광안리': '광안리해수욕장',
+              '부산 광안리': '부산 광안리해수욕장',
+              '자갈치': '자갈치시장',
+              '부산 자갈치': '부산 자갈치시장',
+              '감천문화마을': '감천문화마을',
+              '부산 감천': '부산 감천문화마을',
+              '태종대': '태종대',
+              '부산 태종대': '부산 태종대',
+              '부산타워': '부산타워',
+              '용두산공원': '용두산공원',
+              '부산 용두산': '부산 용두산공원',
+              '명동': '명동거리',
+              '서울 명동': '서울 명동거리',
+              '동대문': '동대문디자인플라자',
+              '서울 동대문': '서울 동대문디자인플라자',
+              '강남': '강남역',
+              '서울 강남': '서울 강남역',
+              '홍대': '홍대입구역',
+              '서울 홍대': '서울 홍대입구역',
+              '이태원': '이태원거리',
+              '서울 이태원': '서울 이태원거리',
+              '남산': '남산서울타워',
+              '서울 남산': '서울 남산서울타워',
+              '경복궁': '경복궁',
+              '서울 경복궁': '서울 경복궁',
+              '창덕궁': '창덕궁',
+              '서울 창덕궁': '서울 창덕궁',
+              '한강': '한강공원',
+              '서울 한강': '서울 한강공원',
+              '제주': '제주도',
+              '제주도': '제주도',
+              '성산일출봉': '성산일출봉',
+              '제주 성산': '제주 성산일출봉',
+              '한라산': '한라산',
+              '제주 한라산': '제주 한라산',
+              '성산': '성산일출봉',
+              '중문': '중문관광단지',
+              '제주 중문': '제주 중문관광단지',
+              '서귀포': '서귀포시',
+              '제주 서귀포': '제주 서귀포시',
+              '경주': '경주시',
+              '불국사': '불국사',
+              '경주 불국사': '경주 불국사',
+              '석굴암': '석굴암',
+              '경주 석굴암': '경주 석굴암',
+              '안압지': '안압지',
+              '경주 안압지': '경주 안압지',
+              '첨성대': '첨성대',
+              '경주 첨성대': '경주 첨성대',
+              '여수': '여수시',
+              '여수해양공원': '여수해양공원',
+              '여수 해양공원': '여수 해양공원',
+              '오동도': '오동도',
+              '여수 오동도': '여수 오동도',
+              '향일암': '향일암',
+              '여수 향일암': '여수 향일암',
+              '순천': '순천시',
+              '순천만': '순천만습지',
+              '순천만습지': '순천만습지',
+              '순천 순천만': '순천 순천만습지',
+              '목포': '목포시',
+              '목포해상케이블카': '목포해상케이블카',
+              '목포 케이블카': '목포 목포해상케이블카',
+              '유달산': '유달산',
+              '목포 유달산': '목포 유달산',
+            };
+            
+            for (const [key, value] of Object.entries(locationEnhancements)) {
+              if (queryLower.includes(key)) {
+                return query.replace(new RegExp(key, 'gi'), value);
+              }
+            }
+            return query;
+          };
+
+          // 기본 검색어들
+          const baseSearchTerms = [
             location.real_address,
             location.location,
             location.title,
             `${location.title} ${destination}`,
             `${location.location} ${destination}`
-          ].filter(Boolean); // null/undefined 제거
+          ].filter(Boolean);
+
+          // 지역명 변환된 검색어들
+          const enhancedSearchTerms = baseSearchTerms.map(term => enhanceLocationQuery(term));
+
+          // 중복 제거하고 합치기
+          const searchTerms = [...new Set([...baseSearchTerms, ...enhancedSearchTerms])].filter(Boolean);
 
           console.log(`Processing location ${index + 1}: ${location.title}`);
           console.log('Search terms:', searchTerms);
@@ -212,27 +304,16 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
             
             try {
               await new Promise<void>((resolve) => {
-                // 주소 검색 시도
-                geocoder.addressSearch(searchTerm, (addressResults: any[], addressStatus: string) => {
-                  if (addressStatus === window.kakao.maps.services.Status.OK && addressResults.length > 0) {
-                    console.log(`Address search success for "${searchTerm}":`, addressResults[0]);
-                    createMarkerFromResult(addressResults[0], location, index);
+                // Places API keywordSearch 사용
+                places.keywordSearch(searchTerm, (data: any[], status: string) => {
+                  if (status === window.kakao.maps.services.Status.OK && data.length > 0) {
+                    console.log(`Places search success for "${searchTerm}":`, data[0]);
+                    createMarkerFromPlacesResult(data[0], location, index);
                     foundResult = true;
-                    resolve();
-                    return;
+                  } else {
+                    console.log(`Places search failed for "${searchTerm}":`, status);
                   }
-                  
-                  // 주소 검색 실패 시 키워드 검색 시도
-                  geocoder.keywordSearch(searchTerm, (keywordResults: any[], keywordStatus: string) => {
-                    if (keywordStatus === window.kakao.maps.services.Status.OK && keywordResults.length > 0) {
-                      console.log(`Keyword search success for "${searchTerm}":`, keywordResults[0]);
-                      createMarkerFromResult(keywordResults[0], location, index);
-                      foundResult = true;
-                    } else {
-                      console.log(`Both searches failed for "${searchTerm}"`);
-                    }
-                    resolve();
-                  });
+                  resolve();
                 });
               });
               
@@ -255,10 +336,11 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
           }
         };
 
-        // 마커 생성 함수
-        const createMarkerFromResult = (result: any, location: any, index: number) => {
+        // 마커 생성 함수 (Places API 결과용)
+        const createMarkerFromPlacesResult = (result: any, location: any, index: number) => {
           const coords = new window.kakao.maps.LatLng(result.y, result.x);
           console.log(`Creating marker for ${location.title} at [${result.y}, ${result.x}]`);
+          console.log('Places result:', result);
           
           // 유효한 좌표 저장
           validCoords.push(coords);
@@ -272,6 +354,9 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
           // 커스텀 오버레이 내용 (순서 번호와 장소명)
           const orderInfo = location.order ? `${location.order}번째` : `${index + 1}번째`;
           
+          // Places API 결과에서 실제 장소명 사용 (더 정확한 정보)
+          const actualPlaceName = result.place_name || result.placeName || location.title;
+          
           // 제목이 길면 말줄임표 처리
           const truncateTitle = (title: string, maxLength: number = 12) => {
             if (title.length > maxLength) {
@@ -280,7 +365,7 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
             return title;
           };
           
-          const displayTitle = truncateTitle(location.title);
+          const displayTitle = truncateTitle(actualPlaceName);
           
           const content = `
             <div style="
@@ -313,7 +398,7 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 max-width: 156px;
-              " title="${location.title}">
+              " title="${actualPlaceName}">
                 ${displayTitle}
               </div>
             </div>

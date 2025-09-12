@@ -2416,7 +2416,7 @@ async def plan_trip(request: TripRequest):
 ✅ 1일차: "경복궁" → 2일차: "창덕궁" (완전히 다른 궁궐)
 
 **여행 페이스별 활동 개수:**
-- "널널하게": 하루에 2-3개 활동 (여유롭게 천천히)
+- "널널하게": 하루에 3개 활동 (여유롭게 천천히)
 - "타이트하게": 하루에 4개 활동 (알차게 많은 곳 방문)
 
 **다른 규칙들:**
@@ -2493,7 +2493,7 @@ JSON 형식으로 응답:
 **반드시 할 것:**
 ✅ 각 장소는 전체 여행에서 단 한 번만 등장
 ✅ 구체적 고유명사 사용
-✅ 여행 페이스에 맞는 활동 개수: 널널하게(2-3개), 타이트하게(3-4개), 보통(3개)
+✅ 여행 페이스에 맞는 활동 개수: 널널하게(3개), 타이트하게(4개)
 ✅ JSON 형식으로 정확히 응답"""},
                 {"role": "user", "content": prompt}
             ],
@@ -2571,94 +2571,11 @@ JSON 형식으로 응답:
                     except Exception as e:
                         logger.error(f"기존 위치 검증 중 오류: {e}")
                 
-                # 네이버 지오코딩을 사용한 위치 검증 (선택적)
-                geocoding_enabled = os.getenv('ENABLE_GEOCODING_VALIDATION', 'true').lower() == 'true'
+                # 지오코딩 검증 비활성화 (카카오 API만 사용)
+                logger.info("지오코딩 검증이 비활성화되어 있습니다. 카카오 API만 사용합니다.")
                 
-                if geocoding_enabled:
-                    try:
-                        geocoding_service = NaverGeocodingService()
-                        
-                        # API 키가 있는지 확인
-                        if geocoding_service.client_id and geocoding_service.client_secret:
-                            logger.info(f"네이버 지오코딩으로 {request.destination} 지역 검증 시작")
-                        else:
-                            logger.info(f"네이버 API 키가 없어 텍스트 기반 검증 실행: {request.destination}")
-                        
-                        if trip_data.get('itinerary'):
-                            validated_itinerary = []
-                            total_activities = 0
-                            invalid_activities = 0
-                            
-                            for day in trip_data['itinerary']:
-                                if day.get('activities'):
-                                    activities = day['activities']
-                                    validation_result = geocoding_service.validate_activity_locations(
-                                        activities, request.destination
-                                    )
-                                    
-                                    total_activities += len(activities)
-                                    invalid_activities += len(validation_result['invalid_activities'])
-                                    
-                                    # 유효한 활동들만 사용하고, 유효하지 않은 활동은 필터링
-                                    valid_activities = validation_result['valid_activities']
-                                    
-                                    if validation_result['invalid_activities']:
-                                        logger.info(f"{day['day']}일차에서 {len(validation_result['invalid_activities'])}개의 부적절한 장소 발견")
-                                        
-                                        for invalid_activity in validation_result['invalid_activities']:
-                                            logger.info(f"지역 불일치 제거: {invalid_activity.get('location', 'Unknown')}")
-                                    
-                                    # 활동이 너무 적어지지 않도록 최소 1개는 유지
-                                    if len(valid_activities) == 0 and len(activities) > 0:
-                                        logger.warning(f"{day['day']}일차의 모든 활동이 제거되어 원본 유지")
-                                        day['activities'] = activities  # 원본 유지
-                                    else:
-                                        day['activities'] = valid_activities
-                                
-                                validated_itinerary.append(day)
-                            
-                            # 검증 통계 로그
-                            if invalid_activities > 0:
-                                logger.info(f"지오코딩 검증: 총 {total_activities}개 활동 중 {invalid_activities}개 부적절한 장소 처리")
-                            else:
-                                logger.info(f"지오코딩 검증: 모든 {total_activities}개 활동이 {request.destination} 지역에 적합합니다")
-                            
-                            # 검증된 일정으로 업데이트
-                            trip_data['itinerary'] = validated_itinerary
-                            
-                    except Exception as e:
-                        logger.error(f"네이버 지오코딩 검증 중 오류: {e}")
-                        # 검증 실패해도 여행 계획은 반환
-                else:
-                    logger.info("지오코딩 검증이 비활성화되어 있습니다.")
-                
-                # 실제 장소 정보 추가 (네이버 검색 API 활용)
-                place_enhancement_enabled = os.getenv('ENABLE_PLACE_ENHANCEMENT', 'true').lower() == 'true'
-                
-                if place_enhancement_enabled:
-                    try:
-                        place_service = NaverPlaceService()
-                        
-                        if place_service.search_client_id and place_service.search_client_secret:
-                            logger.info(f"네이버 검색 API로 실제 장소 정보 추가 시작: {request.destination}")
-                            
-                            # 일정에 실제 장소 정보 추가
-                            enhanced_itinerary = place_service.enhance_itinerary_with_real_places(
-                                trip_data.get('itinerary', []), 
-                                request.destination
-                            )
-                            
-                            trip_data['itinerary'] = enhanced_itinerary
-                            logger.info("실제 장소 정보 추가 완료")
-                            
-                        else:
-                            logger.info("네이버 검색 API 키가 없어 실제 장소 정보 추가를 건너뜁니다.")
-                            
-                    except Exception as e:
-                        logger.error(f"실제 장소 정보 추가 중 오류: {e}")
-                        # 오류가 발생해도 여행 계획은 반환
-                else:
-                    logger.info("실제 장소 정보 추가가 비활성화되어 있습니다.")
+                # 실제 장소 정보 추가 비활성화 (카카오 API만 사용)
+                logger.info("실제 장소 정보 추가가 비활성화되어 있습니다. 카카오 API만 사용합니다.")
                 
                 # TripPlan 모델로 변환하여 반환합니다
                 return TripPlan(**trip_data)
@@ -2701,7 +2618,7 @@ JSON 형식으로 응답:
                 
                 # 여행 페이스에 따른 활동 수 결정
                 if request.travelPace == "타이트하게":
-                    # 하루 3-4개 활동
+                    # 하루 4개 활동
                     activities = [
                         {"time": "09:00", "title": f"{day}일차 오전 관광", "location": f"{request.destination} 주요 관광지", "description": "주요 관광지 방문", "duration": "2시간"},
                         {"time": "12:00", "title": f"점심 및 현지 명소", "location": f"{request.destination} 맛집", "description": "현지 음식 체험 후 명소 탐방", "duration": "2시간"},
@@ -2709,7 +2626,7 @@ JSON 형식으로 응답:
                         {"time": "18:30", "title": f"저녁 식사", "location": f"{request.destination} 음식점", "description": "저녁 식사 및 휴식", "duration": "1.5시간"}
                     ]
                 elif request.travelPace == "널널하게":
-                    # 하루 2-3개 활동
+                    # 하루 3개 활동
                     activities = [
                         {"time": "10:00", "title": f"{day}일차 여유로운 관광", "location": f"{request.destination} 대표 관광지", "description": "천천히 둘러보며 여유있게 관광", "duration": "3시간"},
                         {"time": "15:00", "title": f"점심 및 현지 체험", "location": f"{request.destination} 유명 맛집", "description": "현지 특색 음식을 여유롭게 즐기고 문화 체험", "duration": "2.5시간"},
