@@ -691,7 +691,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           <div className="generation-progress">
             <div className="progress-info">
               <div className="progress-step-indicator">
-                <span className="step-number">{progressStep}/{totalSteps}</span>
                 <span className="step-message">{progressMessage}</span>
               </div>
               

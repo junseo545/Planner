@@ -271,6 +271,17 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
 
           // 커스텀 오버레이 내용 (순서 번호와 장소명)
           const orderInfo = location.order ? `${location.order}번째` : `${index + 1}번째`;
+          
+          // 제목이 길면 말줄임표 처리
+          const truncateTitle = (title: string, maxLength: number = 12) => {
+            if (title.length > maxLength) {
+              return title.substring(0, maxLength) + '...';
+            }
+            return title;
+          };
+          
+          const displayTitle = truncateTitle(location.title);
+          
           const content = `
             <div style="
               background: white;
@@ -298,19 +309,13 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
                 font-weight: bold;
                 color: #1F2937;
                 font-size: 14px;
-              ">
-                ${location.title}
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 156px;
+              " title="${location.title}">
+                ${displayTitle}
               </div>
-              <div style="
-                position: absolute;
-                bottom: -8px;
-                left: 20px;
-                width: 0;
-                height: 0;
-                border-left: 8px solid transparent;
-                border-right: 8px solid transparent;
-                border-top: 8px solid #4F46E5;
-              "></div>
             </div>
           `;
 
