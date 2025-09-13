@@ -192,6 +192,68 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
         let validLocations = 0;
         let processedCount = 0;
 
+        // 더 적절한 장소 결과를 선택하는 함수
+        const selectBestPlaceResult = (results: any[], location: any) => {
+          if (results.length === 0) return results[0];
+          
+          // 우선순위별로 필터링
+          const title = location.title?.toLowerCase() || '';
+          
+          // 1. 음식/식사 관련 활동인 경우
+          if (title.includes('식사') || title.includes('저녁') || title.includes('점심') || title.includes('아침') || 
+              title.includes('맛집') || title.includes('음식') || title.includes('식당')) {
+            
+            // 음식 관련 카테고리 우선 선택
+            const foodResults = results.filter(result => {
+              const category = result.category_name?.toLowerCase() || '';
+              return category.includes('음식') || category.includes('식당') || category.includes('카페') || 
+                     category.includes('레스토랑') || category.includes('맛집');
+            });
+            
+            if (foodResults.length > 0) {
+              console.log('Selected food-related result:', foodResults[0]);
+              return foodResults[0];
+            }
+          }
+          
+          // 2. 관광/명소 관련 활동인 경우
+          if (title.includes('관광') || title.includes('명소') || title.includes('산책') || 
+              title.includes('구경') || title.includes('방문') || title.includes('투어')) {
+            
+            // 관광 관련 카테고리 우선 선택
+            const tourismResults = results.filter(result => {
+              const category = result.category_name?.toLowerCase() || '';
+              return category.includes('관광') || category.includes('명소') || category.includes('공원') || 
+                     category.includes('해수욕장') || category.includes('시장') || category.includes('박물관');
+            });
+            
+            if (tourismResults.length > 0) {
+              console.log('Selected tourism-related result:', tourismResults[0]);
+              return tourismResults[0];
+            }
+          }
+          
+          // 3. 쇼핑 관련 활동인 경우
+          if (title.includes('쇼핑') || title.includes('구매') || title.includes('마트')) {
+            
+            // 쇼핑 관련 카테고리 우선 선택
+            const shoppingResults = results.filter(result => {
+              const category = result.category_name?.toLowerCase() || '';
+              return category.includes('쇼핑') || category.includes('마트') || category.includes('시장') || 
+                     category.includes('상가') || category.includes('백화점');
+            });
+            
+            if (shoppingResults.length > 0) {
+              console.log('Selected shopping-related result:', shoppingResults[0]);
+              return shoppingResults[0];
+            }
+          }
+          
+          // 4. 일반적인 경우 - 첫 번째 결과 반환
+          console.log('Using first result as fallback:', results[0]);
+          return results[0];
+        };
+
         // 각 위치에 대해 Places API로 검색 수행
         const processLocation = async (location: any, index: number) => {
           // 지역명을 구체적인 명소명으로 변환하는 함수
@@ -307,8 +369,13 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
                 // Places API keywordSearch 사용
                 places.keywordSearch(searchTerm, (data: any[], status: string) => {
                   if (status === window.kakao.maps.services.Status.OK && data.length > 0) {
-                    console.log(`Places search success for "${searchTerm}":`, data[0]);
-                    createMarkerFromPlacesResult(data[0], location, index);
+                    console.log(`Places search success for "${searchTerm}":`, data);
+                    
+                    // 더 적절한 결과 선택
+                    const bestResult = selectBestPlaceResult(data, location);
+                    console.log(`Selected best result:`, bestResult);
+                    
+                    createMarkerFromPlacesResult(bestResult, location, index);
                     foundResult = true;
                   } else {
                     console.log(`Places search failed for "${searchTerm}":`, status);
@@ -354,8 +421,8 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
           // 커스텀 오버레이 내용 (순서 번호와 장소명)
           const orderInfo = location.order ? `${location.order}번째` : `${index + 1}번째`;
           
-          // Places API 결과에서 실제 장소명 사용 (더 정확한 정보)
-          const actualPlaceName = result.place_name || result.placeName || location.title;
+          // title 사용 (사용자가 입력한 활동명)
+          const actualTitle = location.title;
           
           // 제목이 길면 말줄임표 처리
           const truncateTitle = (title: string, maxLength: number = 12) => {
@@ -365,7 +432,7 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
             return title;
           };
           
-          const displayTitle = truncateTitle(actualPlaceName);
+          const displayTitle = truncateTitle(actualTitle);
           
           const content = `
             <div style="
@@ -398,7 +465,7 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 max-width: 156px;
-              " title="${actualPlaceName}">
+              " title="${actualTitle}">
                 ${displayTitle}
               </div>
             </div>

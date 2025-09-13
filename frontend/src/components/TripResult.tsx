@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ArrowLeft, ExternalLink, Download, Share2, MapPin, Calendar, DollarSign, ChevronUp, Send } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Download, MapPin, Calendar, DollarSign, ChevronUp, Send } from 'lucide-react';
 import { TripResultProps } from '../types';
 import TripMap from './TripMap';
 
@@ -94,24 +94,6 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
     URL.revokeObjectURL(url);
   };
 
-  const handleShare = async (): Promise<void> => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `${tripPlan.destination} 여행 계획`,
-          text: `AI가 만든 ${tripPlan.destination} 여행 계획을 확인해보세요!`,
-          url: window.location.href
-        });
-      } catch (error) {
-        console.log('공유 취소됨');
-      }
-    } else {
-      // 공유 API가 지원되지 않는 경우 클립보드에 복사
-      const text = `${tripPlan.destination} 여행 계획: ${window.location.href}`;
-      navigator.clipboard.writeText(text);
-      alert('링크가 클립보드에 복사되었습니다!');
-    }
-  };
 
   const handleChatSubmit = async (): Promise<void> => {
     if (!chatMessage.trim()) return;
@@ -210,10 +192,6 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
           <button onClick={handleDownload} className="action-button">
             <Download />
             <span>다운로드</span>
-          </button>
-          <button onClick={handleShare} className="action-button">
-            <Share2 />
-            <span>공유</span>
           </button>
         </div>
       </div>

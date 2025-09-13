@@ -607,8 +607,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             <option value="자동차">자동차</option>
             <option value="대중교통">대중교통</option>
             <option value="기차">기차</option>
-            <option value="비행기">비행기</option>
-            <option value="렌터카">렌터카</option>
             <option value="도보/자전거">도보/자전거</option>
           </select>
         </div>
