@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { analyticsEvents } from '../utils/analytics';
 
 interface Location {
   title: string;
@@ -181,6 +182,9 @@ const TripMap: React.FC<TripMapProps> = ({ locations, destination }) => {
       mapRef.current = map;
       console.log('Map created successfully');
       setIsLoading(false);
+      
+      // GA4 이벤트 추적 - 지도 로드
+      analyticsEvents.mapInteraction('map_loaded', destination);
 
       // Places API가 가능한지 확인
       if (window.kakao.maps.services && locations.length > 0) {

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ArrowLeft, ExternalLink, Download, MapPin, Calendar, DollarSign, ChevronUp, Send } from 'lucide-react';
 import { TripResultProps } from '../types';
 import TripMap from './TripMap';
+import { analyticsEvents } from '../utils/analytics';
 
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdated }): React.JSX.Element => {
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
@@ -56,6 +57,9 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
 
 
   const handleDownload = (): void => {
+    // GA4 이벤트 추적
+    analyticsEvents.buttonClick('download_trip_plan', 'trip_result');
+    
     const content = `
       여행 계획서
 
@@ -97,6 +101,9 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
 
   const handleChatSubmit = async (): Promise<void> => {
     if (!chatMessage.trim()) return;
+
+    // GA4 이벤트 추적
+    analyticsEvents.buttonClick('trip_modification_request', 'trip_result');
 
     // 사용자 메시지 추가
     const userMessage = chatMessage.trim();
@@ -181,7 +188,10 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
       {/* 헤더 */}
       <div className="result-header">
         <button
-          onClick={onReset}
+          onClick={() => {
+            analyticsEvents.buttonClick('new_trip_plan', 'trip_result');
+            onReset();
+          }}
           className="back-button"
         >
           <ArrowLeft />

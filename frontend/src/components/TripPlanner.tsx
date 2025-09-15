@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Calendar, Bed, ArrowRight, ArrowLeft, Car } from 'lucide-react';
 import axios from 'axios';
 import { TripPlan, TripPlannerProps, TripFormData } from '../types';
+import { analyticsEvents } from '../utils/analytics';
 
 const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, setLoading }): React.JSX.Element => {
   const [currentStep, setCurrentStep] = useState(1);
@@ -21,8 +22,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
   });
 
   // 진행 상황 관련 상태
-  const [progressStep, setProgressStep] = useState(0);
-  const [totalSteps, setTotalSteps] = useState(11);
   const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
 
@@ -151,6 +150,10 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     setFormData((prev: TripFormData) => ({ ...prev, customRegion: suggestion, region: suggestion }));
     setInputValue(suggestion);
     setShowSuggestions(false);
+    
+    // GA4 이벤트 추적
+    analyticsEvents.placeSearch(suggestion, 1);
+    
     // 지역 선택 후 자동으로 다음 단계로 이동
     setCurrentStep(2);
   };
@@ -236,6 +239,12 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     const endDate = new Date(formData.end_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    
+    // GA4 이벤트 추적 - 여행 계획 시작
+    const destination = formData.region || formData.customRegion;
+    const duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    analyticsEvents.tripPlanningStarted(destination, duration);
 
     if (startDate < today) {
       alert('여행 시작일은 오늘 이후 날짜여야 합니다.');
@@ -254,7 +263,6 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     }
 
     setLoading(true);
-    setProgressStep(0);
     setProgressMessage('여행 계획 생성을 시작합니다...');
     setProgressPercent(0);
     
@@ -302,14 +310,8 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
           const data = JSON.parse(event.data);
           
           if (data.step) {
-            setProgressStep(data.step);
             setProgressMessage(data.message);
             setProgressPercent(data.progress);
-            
-            // total_steps 정보가 있으면 업데이트
-            if (data.total_steps) {
-              setTotalSteps(data.total_steps);
-            }
             
             // 90%에 도달하면 실제 API 호출 시작
             if (data.progress >= 90) {
@@ -404,6 +406,17 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       sessionStorage.removeItem('tripPlannerCurrentStep');
       console.log('Cleared trip planner data after successful generation');
       
+      // GA4 이벤트 추적 - 여행 계획 완료
+      const destination = submitData.destination;
+      const startDate = new Date(submitData.start_date);
+      const endDate = new Date(submitData.end_date);
+      const duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      const totalPlaces = response.data.itinerary?.reduce((total: number, day: any) => {
+        return total + (day.activities?.length || 0);
+      }, 0) || 0;
+      
+      analyticsEvents.tripPlanningCompleted(destination, duration, totalPlaces);
+      
       onTripGenerated(response.data);
     } catch (error: any) {
       console.error('여행 계획 생성 오류:', error);
@@ -415,6 +428,9 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
       }
       console.error('오류 상세:', error.response?.data);
       console.error('HTTP 상태:', error.response?.status);
+      
+      // GA4 이벤트 추적 - 에러 발생
+      analyticsEvents.errorOccurred('trip_planning_error', error.message || 'Unknown error');
       
       let errorMessage = '여행 계획 생성 중 오류가 발생했습니다.';
       

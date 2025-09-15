@@ -3,13 +3,17 @@ import Header from './components/Header';
 import TripPlanner from './components/TripPlanner';
 import TripResult from './components/TripResult';
 import { TripPlan } from './types';
+import { trackPageView } from './utils/analytics';
 
 const App: React.FC = () => {
   const [tripPlan, setTripPlan] = useState<TripPlan | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 컴포넌트 마운트 시 저장된 여행 계획 복원
+  // 컴포넌트 마운트 시 저장된 여행 계획 복원 및 페이지 뷰 추적
   useEffect(() => {
+    // 페이지 뷰 추적
+    trackPageView(window.location.pathname, 'Plan & Go - AI 여행 플래너');
+    
     try {
       const savedTripPlan = sessionStorage.getItem('currentTripPlan');
       if (savedTripPlan) {
