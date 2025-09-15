@@ -30,7 +30,7 @@ export const trackPageView = (pagePath: string, pageTitle?: string) => {
 export const analyticsEvents = {
   // 여행 계획 시작
   tripPlanningStarted: (destination: string, duration: number) => {
-    trackEvent('trip_planning_started', {
+    trackEvent('여행계획_시작', {
       destination,
       duration_days: duration,
       event_category: 'trip_planning',
@@ -39,7 +39,7 @@ export const analyticsEvents = {
 
   // 여행 계획 완료
   tripPlanningCompleted: (destination: string, duration: number, totalPlaces: number) => {
-    trackEvent('trip_planning_completed', {
+    trackEvent('여행계획_완료', {
       destination,
       duration_days: duration,
       total_places: totalPlaces,
@@ -49,7 +49,7 @@ export const analyticsEvents = {
 
   // 장소 검색
   placeSearch: (query: string, resultsCount: number) => {
-    trackEvent('place_search', {
+    trackEvent('장소_검색', {
       search_query: query,
       results_count: resultsCount,
       event_category: 'search',
@@ -58,7 +58,7 @@ export const analyticsEvents = {
 
   // 장소 선택
   placeSelected: (placeName: string, placeType: string) => {
-    trackEvent('place_selected', {
+    trackEvent('장소_선택', {
       place_name: placeName,
       place_type: placeType,
       event_category: 'interaction',
@@ -67,7 +67,7 @@ export const analyticsEvents = {
 
   // 숙박 검색
   accommodationSearch: (destination: string, checkIn: string, checkOut: string) => {
-    trackEvent('accommodation_search', {
+    trackEvent('숙박_검색', {
       destination,
       check_in_date: checkIn,
       check_out_date: checkOut,
@@ -77,7 +77,7 @@ export const analyticsEvents = {
 
   // 숙박 선택
   accommodationSelected: (hotelName: string, price: number) => {
-    trackEvent('accommodation_selected', {
+    trackEvent('숙박_선택', {
       hotel_name: hotelName,
       price,
       event_category: 'accommodation',
@@ -86,7 +86,7 @@ export const analyticsEvents = {
 
   // 에러 발생
   errorOccurred: (errorType: string, errorMessage: string) => {
-    trackEvent('error_occurred', {
+    trackEvent('에러_발생', {
       error_type: errorType,
       error_message: errorMessage,
       event_category: 'error',
@@ -95,7 +95,7 @@ export const analyticsEvents = {
 
   // 사용자 상호작용
   buttonClick: (buttonName: string, location: string) => {
-    trackEvent('button_click', {
+    trackEvent('버튼_클릭', {
       button_name: buttonName,
       location,
       event_category: 'interaction',
@@ -104,7 +104,7 @@ export const analyticsEvents = {
 
   // 지도 상호작용
   mapInteraction: (interactionType: string, details?: string) => {
-    trackEvent('map_interaction', {
+    trackEvent('지도_상호작용', {
       interaction_type: interactionType,
       details,
       event_category: 'map',
