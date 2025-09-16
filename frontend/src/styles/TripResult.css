@@ -932,14 +932,35 @@
 
 /* 반응형 디자인 */
 @media (max-width: 768px) {
+  .result-container {
+    padding: 0 0.5rem;
+  }
+  
   .result-header {
     flex-direction: column;
     align-items: stretch;
     gap: 1rem;
+    margin-bottom: 2rem;
   }
   
   .action-buttons {
     justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  
+  .action-button {
+    flex: 1;
+    min-width: 120px;
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+  }
+  
+  .back-button {
+    width: 100%;
+    justify-content: center;
+    padding: 1rem;
+    font-size: 0.9rem;
   }
   
   .overview-card,
@@ -950,11 +971,13 @@
   .tips-card {
     padding: 1.5rem;
     margin-bottom: 1.25rem;
+    border-radius: 16px;
   }
   
   .activity-item {
     flex-direction: column;
     gap: 1rem;
+    padding: 1rem;
   }
   
   .activity-number {
@@ -970,7 +993,8 @@
   }
   
   .overview-title {
-    font-size: 2rem;
+    font-size: 1.75rem;
+    line-height: 1.2;
   }
   
   .itinerary-title,
@@ -1001,6 +1025,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.75rem;
+    padding: 1rem;
   }
   
   .event-indicator {
@@ -1011,21 +1036,76 @@
   .day-tabs {
     gap: 0.5rem;
     margin-bottom: 1.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
   }
   
   .day-tab {
-    padding: 0.75rem 1.25rem;
+    padding: 0.75rem 1rem;
     font-size: 0.8rem;
     border-radius: 10px;
-    min-width: 75px;
+    min-width: 70px;
+    flex-shrink: 0;
   }
   
-
+  /* 모바일에서 지도 최적화 */
+  .map-card {
+    margin: 0 0.5rem 1.5rem;
+    padding: 1rem;
+  }
+  
+  .kakao-map {
+    height: 250px !important;
+  }
+  
+  /* 모바일에서 하단 패널 최적화 */
+  .bottom-panel {
+    width: 95%;
+    min-width: 300px;
+    max-height: 85vh;
+  }
+  
+  .panel-content {
+    padding: 1rem;
+  }
+  
+  .tab-buttons {
+    flex-direction: column;
+    gap: 0;
+  }
+  
+  .tab-button {
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e2e8f0;
+  }
 }
 
 @media (max-width: 480px) {
   .result-container {
-    padding: 0 1rem;
+    padding: 0 0.5rem;
+  }
+  
+  .result-header {
+    margin-bottom: 1.5rem;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .action-button {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+    min-height: 44px;
+  }
+  
+  .back-button {
+    padding: 0.875rem 1rem;
+    font-size: 0.85rem;
   }
   
   .overview-card,
@@ -1035,10 +1115,13 @@
   .accommodation-card,
   .tips-card {
     padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 12px;
   }
   
   .overview-title {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
+    line-height: 1.1;
   }
   
   .itinerary-title,
@@ -1049,28 +1132,88 @@
   }
   
   .accommodation-name {
-    font-size: 1.25rem;
-  }
-  
-  .action-button {
-    padding: 0.75rem 1rem;
-    font-size: 0.8rem;
+    font-size: 1.125rem;
   }
   
   /* 작은 화면 탭 스타일 */
   .day-tabs {
     gap: 0.375rem;
     margin-bottom: 1rem;
+    padding: 0 0.25rem;
   }
   
   .day-tab {
-    padding: 0.625rem 1rem;
+    padding: 0.625rem 0.75rem;
     font-size: 0.75rem;
     border-radius: 8px;
-    min-width: 65px;
+    min-width: 60px;
   }
   
-
+  .activity-item {
+    padding: 0.875rem;
+  }
+  
+  .activity-title {
+    font-size: 1rem;
+  }
+  
+  .activity-description {
+    font-size: 0.85rem;
+  }
+  
+  .day-header {
+    padding: 0.875rem;
+  }
+  
+  .day-activities {
+    padding: 0.875rem;
+  }
+  
+  .overview-item {
+    padding: 1rem;
+  }
+  
+  .overview-value {
+    font-size: 1rem;
+  }
+  
+  .overview-label {
+    font-size: 0.8rem;
+  }
+  
+  /* 모바일에서 지도 최적화 */
+  .map-card {
+    margin: 0 0.25rem 1rem;
+    padding: 0.875rem;
+  }
+  
+  .kakao-map {
+    height: 200px !important;
+  }
+  
+  .map-title {
+    font-size: 1.125rem;
+  }
+  
+  /* 모바일에서 하단 패널 최적화 */
+  .bottom-panel {
+    width: 98%;
+    min-width: 280px;
+    max-height: 90vh;
+  }
+  
+  .panel-content {
+    padding: 0.875rem;
+  }
+  
+  .tab-button {
+    padding: 0.625rem 0.875rem;
+    font-size: 0.8rem;
+  }
+  
+  .chat-input {
+    font-size: 16px; /* iOS 줌 방지 */
+  }
 }
 
 

@@ -36,607 +36,6 @@ class KakaoLocalService:
     """카카오 로컬 API를 사용하여 장소 검색 및 검증을 수행하는 서비스"""
     
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or KAKAO_API_KEY
-        self.base_url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-    
-    def search_place(self, query: str, region: str = None) -> dict:
-        """목적지와 날짜에 맞는 축제/행사 정보를 검색하는 메서드"""
-        try:
-            # 날짜 정보 파싱
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            current_date = datetime.now().date()
-            
-            # 여행 시작일이 현재 날짜보다 과거인지 확인
-            if start_dt.date() < current_date:
-                logger.info(f"과거 여행 제외: {start_date} (현재: {current_date})")
-                return []
-            
-            # 검색 쿼리 구성 - 연도를 명시적으로 포함하고 미래 이벤트 강조
-            year = start_dt.year
-            month = start_dt.month
-            
-            # 지역 중심의 검색 쿼리 (지역을 더 강조)
-            search_queries = [
-                f'"{destination}" {year}년 {month}월 축제',  # 따옴표로 지역명 강조
-                f'"{destination}" {year}년 {month}월 행사',
-                f'"{destination}" {year}년 {month}월 이벤트',
-                f'"{destination}" {year}년 {month}월 문화행사',
-                f'"{destination}" {year}년 {month}월 페스티벌',
-                f'"{destination}" {year}년 {month}월 축제 일정',
-                f'"{destination}" {year}년 {month}월 행사 일정',
-                # 구체적인 날짜 범위를 포함한 검색
-                f'"{destination}" {start_date} {end_date} 축제',
-                f'"{destination}" {start_date} {end_date} 행사',
-                f'"{destination}" {start_date} {end_date} 이벤트',
-                # 지역명을 앞에 배치하여 우선순위 높임
-                f'{destination}지역 {year}년 {month}월 축제',
-                f'{destination}지역 {year}년 {month}월 행사',
-                f'{destination}지역 {year}년 {month}월 이벤트'
-            ]
-            
-            all_results = []
-            
-            for query in search_queries:
-                try:
-                    # 뉴스 검색 - 최신순으로 정렬
-                    news_results = self._search_naver("news", query, 5)
-                    all_results.extend(self._process_news_results(news_results, destination, start_date, end_date))
-                    
-                    # 블로그 검색 - 관련성순으로 정렬
-                    blog_results = self._search_naver("blog", query, 5)
-                    all_results.extend(self._process_blog_results(blog_results, destination, start_date, end_date))
-                    
-                    # 웹문서 검색 - 관련성순으로 정렬
-                    web_results = self._search_naver("webkr", query, 5)
-                    all_results.extend(self._process_web_results(web_results, destination, start_date, end_date))
-                    
-                except Exception as e:
-                    logger.warning(f"쿼리 '{query}' 검색 중 오류: {e}")
-                    continue
-            
-            # 중복 제거 및 관련성 점수로 정렬
-            unique_results = self._remove_duplicates(all_results)
-            scored_results = self._calculate_relevance_scores(unique_results, destination, start_date, end_date)
-            
-            # 상위 결과만 반환 (최대 8개)
-            return scored_results[:5]
-            
-        except Exception as e:
-            logger.error(f"네이버 검색 중 오류: {e}")
-            return []
-    
-    def _search_naver(self, search_type: str, query: str, display: int = 10) -> dict:
-        """네이버 API 검색 실행"""
-        url = f"https://openapi.naver.com/v1/search/{search_type}.json"
-        
-        # 검색 타입별 최적 파라미터 설정
-        if search_type == "news":
-            # 뉴스는 최신순으로 정렬하고 연도 필터링 강화
-            params = {
-                "query": query,
-                "display": display,
-                "sort": "date",  # 최신순
-                "start": 1
-            }
-        elif search_type == "blog":
-            # 블로그는 관련성순으로 정렬
-            params = {
-                "query": query,
-                "display": display,
-                "sort": "sim",  # 관련성순
-                "start": 1
-            }
-        else:  # webkr
-            # 웹문서는 관련성순으로 정렬
-            params = {
-                "query": query,
-                "display": display,
-                "sort": "sim",  # 관련성순
-                "start": 1
-            }
-        
-        try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.Timeout:
-            logger.warning(f"네이버 API 검색 타임아웃: {search_type}")
-            return {"items": []}
-        except Exception as e:
-            logger.error(f"네이버 API 검색 오류: {search_type}, {e}")
-            return {"items": []}
-    
-    def _process_news_results(self, results: dict, destination: str, start_date: str, end_date: str) -> List[dict]:
-        """뉴스 검색 결과를 처리하여 이벤트 정보로 변환"""
-        events = []
-        
-        if 'items' not in results:
-            return events
-        
-        # 여행 기간 파싱
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        target_year = start_dt.year
-        
-        for item in results['items']:
-            try:
-                # 제목과 설명에서 목적지가 명확하게 포함되어 있는지 확인
-                title = item.get('title', '').lower()
-                description = item.get('description', '').lower()
-                
-                # 목적지가 제목이나 설명에 포함되어 있는지 확인 (지역명, 약칭, 별칭 포함)
-                destination_variants = self._get_destination_variants(destination)
-                has_destination = any(variant in title or variant in description for variant in destination_variants)
-                
-                if not has_destination:
-                    logger.info(f"목적지 불일치 제외: {item.get('title', '')} - 목적지: {destination}")
-                    continue
-                
-                # 날짜 정보 추출
-                pub_date = self._extract_date(item.get('pubDate', ''))
-                if not pub_date:
-                    continue
-                
-                # 연도가 여행 연도와 일치하는지 확인
-                if pub_date.year != target_year:
-                    logger.info(f"연도 불일치 제외: {item.get('title', '')} - {pub_date.year}년 (목표: {target_year}년)")
-                    continue
-                
-                # 여행 기간과 비교 (월/일만)
-                if self._is_date_in_range(pub_date, start_date, end_date):
-                    event = {
-                        'name': self._clean_title(item.get('title', '')),
-                        'date': pub_date.strftime("%Y-%m-%d"),
-                        'description': self._clean_description(item.get('description', '')),
-                        'location': destination,
-                        'type': '뉴스',
-                        'website': item.get('link', ''),
-                        'ticket_info': None,
-                        'source': 'naver_news',
-                        'relevance_score': 0
-                    }
-                    events.append(event)
-                    logger.info(f"뉴스 이벤트 추가: {event['name']} ({event['date']}) - {destination}")
-                else:
-                    logger.info(f"날짜 범위 밖 제외: {item.get('title', '')} - {pub_date.strftime('%Y-%m-%d')}")
-                    
-            except Exception as e:
-                logger.warning(f"뉴스 결과 처리 중 오류: {e}")
-                continue
-        
-        return events
-    
-    def _process_blog_results(self, results: dict, destination: str, start_date: str, end_date: str) -> List[dict]:
-        """블로그 검색 결과를 처리하여 이벤트 정보로 변환"""
-        events = []
-        
-        if 'items' not in results:
-            return events
-        
-        # 여행 기간 파싱
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        target_year = start_dt.year
-        current_date = datetime.now().date()  # 현재 날짜
-        
-        for item in results['items']:
-            try:
-                # 블로그는 날짜 정보가 부정확할 수 있으므로 키워드 기반으로 필터링
-                title = item.get('title', '').lower()
-                description = item.get('description', '').lower()
-                
-                # 목적지가 제목이나 설명에 포함되어 있는지 확인 (지역명, 약칭, 별칭 포함)
-                destination_variants = self._get_destination_variants(destination)
-                has_destination = any(variant in title or variant in description for variant in destination_variants)
-                
-                if not has_destination:
-                    logger.info(f"블로그 목적지 불일치 제외: {item.get('title', '')} - 목적지: {destination}")
-                    continue
-                
-                # 연도가 제목이나 설명에 명시적으로 포함되어 있는지 확인
-                year_in_title = str(target_year) in title
-                year_in_description = str(target_year) in description
-                
-                # 축제/행사 관련 키워드 확인
-                event_keywords = ['축제', '행사', '이벤트', '페스티벌', '전시회', '공연', '쇼']
-                has_event_keywords = any(keyword in title or keyword in description for keyword in event_keywords)
-                
-                # 연도와 이벤트 키워드가 모두 있는 경우만 포함
-                if (year_in_title or year_in_description) and has_event_keywords:
-                    # 여행 시작일이 현재 날짜보다 과거인지 확인
-                    if start_dt.date() < current_date:
-                        logger.info(f"블로그 과거 여행 제외: {start_date} (현재: {current_date})")
-                        continue
-                    
-                    event = {
-                        'name': self._clean_title(item.get('title', '')),
-                        'date': start_date,  # 블로그는 정확한 날짜를 알기 어려우므로 여행 시작일로 설정
-                        'description': self._clean_description(item.get('description', '')),
-                        'location': destination,
-                        'type': '블로그 정보',
-                        'website': item.get('link', ''),
-                        'ticket_info': None,
-                        'source': 'naver_blog',
-                        'relevance_score': 0
-                    }
-                    events.append(event)
-                    logger.info(f"블로그 이벤트 추가: {event['name']} (연도 확인됨) - {destination}")
-                else:
-                    logger.info(f"블로그 제외: {item.get('title', '')} - 연도 또는 키워드 부족")
-                    
-            except Exception as e:
-                logger.warning(f"블로그 결과 처리 중 오류: {e}")
-                continue
-        
-        return events
-    
-    def _process_web_results(self, results: dict, destination: str, start_date: str, end_date: str) -> List[dict]:
-        """웹문서 검색 결과를 처리하여 이벤트 정보로 변환"""
-        events = []
-        
-        if 'items' not in results:
-            return events
-        
-        # 여행 기간 파싱
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        target_year = start_dt.year
-        current_date = datetime.now().date()  # 현재 날짜
-        
-        for item in results['items']:
-            try:
-                title = item.get('title', '').lower()
-                description = item.get('description', '').lower()
-                
-                # 목적지가 제목이나 설명에 포함되어 있는지 확인 (지역명, 약칭, 별칭 포함)
-                destination_variants = self._get_destination_variants(destination)
-                has_destination = any(variant in title or variant in description for variant in destination_variants)
-                
-                if not has_destination:
-                    logger.info(f"웹문서 목적지 불일치 제외: {item.get('title', '')} - 목적지: {destination}")
-                    continue
-                
-                # 연도가 제목이나 설명에 명시적으로 포함되어 있는지 확인
-                year_in_title = str(target_year) in title
-                year_in_description = str(target_year) in description
-                
-                # 축제/행사 관련 키워드 확인
-                event_keywords = ['축제', '행사', '이벤트', '페스티벌', '전시회', '공연', '쇼']
-                has_event_keywords = any(keyword in title or keyword in description for keyword in event_keywords)
-                
-                # 연도와 이벤트 키워드가 모두 있는 경우만 포함
-                if (year_in_title or year_in_description) and has_event_keywords:
-                    # 여행 시작일이 현재 날짜보다 과거인지 확인
-                    if start_dt.date() < current_date:
-                        logger.info(f"웹문서 과거 여행 제외: {start_date} (현재: {current_date})")
-                        continue
-                    
-                    event = {
-                        'name': self._clean_title(item.get('title', '')),
-                        'date': start_date,  # 웹문서도 정확한 날짜를 알기 어려움
-                        'description': self._clean_description(item.get('description', '')),
-                        'location': destination,
-                        'type': '웹문서',
-                        'website': item.get('link', ''),
-                        'ticket_info': None,
-                        'source': 'naver_web',
-                        'relevance_score': 0
-                    }
-                    events.append(event)
-                    logger.info(f"웹문서 이벤트 추가: {event['name']} (연도 확인됨) - {destination}")
-                else:
-                    logger.info(f"웹문서 제외: {item.get('title', '')} - 연도 또는 키워드 부족")
-                    
-            except Exception as e:
-                logger.warning(f"웹문서 결과 처리 중 오류: {e}")
-                continue
-        
-        return events
-    
-    def _extract_date(self, date_str: str) -> Optional[datetime]:
-        """문자열에서 날짜 정보를 추출"""
-        try:
-            # 다양한 날짜 형식 처리
-            date_patterns = [
-                r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',
-                r'(\d{4})-(\d{1,2})-(\d{1,2})',
-                r'(\d{1,2})월\s*(\d{1,2})일',
-                r'(\d{4})년\s*(\d{1,2})월'
-            ]
-            
-            for pattern in date_patterns:
-                match = re.search(pattern, date_str)
-                if match:
-                    if len(match.groups()) == 3:
-                        year, month, day = map(int, match.groups())
-                        return datetime(year, month, day)
-                    elif len(match.groups()) == 2:
-                        month, day = map(int, match.groups())
-                        # 현재 연도 사용
-                        current_year = datetime.now().year
-                        return datetime(current_year, month, day)
-            
-            return None
-            
-        except Exception as e:
-            logger.warning(f"날짜 추출 실패: {date_str}, {e}")
-            return None
-    
-    def _is_date_in_range(self, event_date: datetime, start_date: str, end_date: str) -> bool:
-        """이벤트 날짜가 여행 기간 내에 있는지 확인"""
-        try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            current_date = datetime.now().date()  # 현재 날짜
-            
-            # 이미 지난 이벤트는 제외
-            if event_date.date() < current_date:
-                logger.info(f"과거 이벤트 제외: {event_date.strftime('%Y-%m-%d')} (현재: {current_date})")
-                return False
-            
-            # 여행 기간 내에 있는지 정확하게 확인 (연도 포함)
-            if start_dt <= event_date <= end_dt:
-                logger.info(f"여행 기간 내 이벤트: {event_date.strftime('%Y-%m-%d')} (여행: {start_date} ~ {end_date})")
-                return True
-            
-            # 연도가 바뀌는 경우 (예: 12월 31일 ~ 1월 2일) - 월/일만 비교
-            if start_dt.month > end_dt.month:
-                # 여행이 연도를 걸치는 경우
-                event_month_day = (event_date.month, event_date.day)
-                start_month_day = (start_dt.month, start_dt.day)
-                end_month_day = (end_dt.month, end_dt.day)
-                
-                # 월/일 기준으로 매칭
-                if (event_month_day >= start_month_day) or (event_month_day <= end_month_day):
-                    logger.info(f"연도 걸친 여행 기간 내 이벤트: {event_date.strftime('%Y-%m-%d')} (여행: {start_date} ~ {end_date})")
-                    return True
-            
-            # 여행 기간 밖의 이벤트는 제외
-            logger.info(f"여행 기간 밖 이벤트 제외: {event_date.strftime('%Y-%m-%d')} (여행: {start_date} ~ {end_date})")
-            return False
-            
-        except Exception as e:
-            logger.warning(f"날짜 범위 확인 실패: {e}")
-            return False
-    
-    def _clean_title(self, title: str) -> str:
-        """제목에서 HTML 태그와 불필요한 문자 제거"""
-        # HTML 태그 제거
-        title = re.sub(r'<[^>]+>', '', title)
-        # 특수 문자 정리
-        title = re.sub(r'[^\w\s가-힣]', '', title)
-        return title.strip()
-    
-    def _clean_description(self, description: str) -> str:
-        """설명에서 HTML 태그와 불필요한 문자 제거"""
-        # HTML 태그 제거
-        description = re.sub(r'<[^>]+>', '', description)
-        # 특수 문자 정리
-        description = re.sub(r'[^\w\s가-힣]', '', description)
-        return description.strip()
-    
-    def _remove_duplicates(self, events: List[dict]) -> List[dict]:
-        """중복 이벤트 제거"""
-        seen = set()
-        unique_events = []
-        
-        for event in events:
-            # 제목과 설명을 기반으로 중복 확인
-            key = (event['name'], event['description'][:50])
-            if key not in seen:
-                seen.add(key)
-                unique_events.append(event)
-        
-        return unique_events
-    
-    def _calculate_relevance_scores(self, events: List[dict], destination: str, start_date: str, end_date: str) -> List[dict]:
-        """이벤트의 관련성 점수를 계산하고 정렬"""
-        target_year = datetime.strptime(start_date, "%Y-%m-%d").year
-        current_date = datetime.now().date()
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        
-        for event in events:
-            score = 0
-            
-            # 제목과 설명에서 관련 키워드 확인
-            title = event['name'].lower()
-            description = event['description'].lower()
-            
-            # 목적지 관련성 (가장 중요)
-            destination_variants = self._get_destination_variants(destination)
-            destination_score = 0
-            
-            # 정확한 지역명 매칭을 위한 강화된 필터링
-            exact_location_match = False
-            other_location_penalty = 0
-            
-            # 제목에서 목적지 확인
-            for variant in destination_variants:
-                if variant in title:
-                    destination_score += 8  # 제목에 목적지가 있으면 매우 높은 점수
-                    exact_location_match = True
-                    break
-            
-            # 설명에서 목적지 확인
-            if destination_score == 0:  # 제목에 없었다면
-                for variant in destination_variants:
-                    if variant in description:
-                        destination_score += 5  # 설명에 목적지가 있으면 높은 점수
-                        exact_location_match = True
-                        break
-            
-            # 다른 강원도 지역명이 있는지 확인하여 점수 차감
-            if destination.lower() in ["강릉", "속초", "춘천", "평창", "원주", "동해", "태백", "삼척"]:
-                gangwon_cities = ["강릉", "속초", "춘천", "평창", "원주", "동해", "태백", "삼척"]
-                for city in gangwon_cities:
-                    if city != destination.lower() and city in title.lower():
-                        other_location_penalty = -10  # 다른 강원도 도시명이 있으면 큰 점수 차감
-                        logger.info(f"다른 강원도 도시 {city} 발견으로 점수 차감: {event['name']}")
-                        break
-                    elif city != destination.lower() and city in description.lower():
-                        other_location_penalty = -5  # 설명에 다른 도시명이 있으면 점수 차감
-                        break
-            
-            score += destination_score + other_location_penalty
-            
-            # 연도 일치
-            if str(target_year) in title:
-                score += 10  # 제목에 연도가 있으면 매우 높은 점수
-            elif str(target_year) in description:
-                score += 8   # 설명에 연도가 있으면 높은 점수
-            
-            # 여행 기간 내 정확한 날짜 매칭 (가장 중요)
-            try:
-                event_date = datetime.strptime(event['date'], "%Y-%m-%d")
-                if start_dt <= event_date <= end_dt:
-                    score += 15  # 여행 기간 내 정확한 날짜는 매우 높은 점수
-                    logger.info(f"여행 기간 내 정확한 날짜 매칭: {event['name']} ({event['date']}) - +15점")
-                elif start_dt.month > end_dt.month:  # 연도 걸친 여행
-                    event_month_day = (event_date.month, event_date.day)
-                    start_month_day = (start_dt.month, start_dt.day)
-                    end_month_day = (end_dt.month, end_dt.day)
-                    if (event_month_day >= start_month_day) or (event_month_day <= end_month_day):
-                        score += 12  # 연도 걸친 여행 기간 내 날짜는 높은 점수
-                        logger.info(f"연도 걸친 여행 기간 내 날짜 매칭: {event['name']} ({event['date']}) - +12점")
-            except:
-                pass  # 날짜 파싱 실패 시 점수 추가하지 않음
-            
-            # 미래 이벤트 키워드 (예정, 일정 등)
-            future_keywords = ['예정', '일정', '개최', '진행', '열린다', '개막', '시작']
-            for keyword in future_keywords:
-                if keyword in title:
-                    score += 4
-                if keyword in description:
-                    score += 3
-            
-            # 축제/행사 키워드
-            event_keywords = ['축제', '행사', '이벤트', '페스티벌', '전시회', '공연', '쇼']
-            for keyword in event_keywords:
-                if keyword in title:
-                    score += 3
-                if keyword in description:
-                    score += 2
-            
-            # 날짜 정확성
-            if event['source'] == 'naver_news':
-                score += 5  # 뉴스는 날짜가 더 정확함
-            elif event['source'] == 'naver_blog':
-                score += 3  # 블로그는 중간
-            elif event['source'] == 'naver_web':
-                score += 2  # 웹문서는 낮음
-            
-            # 정보 품질
-            if len(event['description']) > 50:
-                score += 2
-            
-            # 제목 길이 (너무 짧거나 긴 것은 제외)
-            if 10 <= len(event['name']) <= 100:
-                score += 1
-            
-            event['relevance_score'] = score
-        
-        # 점수가 0 이하인 이벤트 필터링 (관련성이 떨어지는 결과 제외)
-        filtered_events = [event for event in events if event['relevance_score'] > 0]
-        
-        # 점수순으로 정렬
-        return sorted(filtered_events, key=lambda x: x['relevance_score'], reverse=True)
-
-    def _get_destination_variants(self, destination: str) -> List[str]:
-        """목적지의 다양한 변형(약칭, 별칭, 구/군 단위 등)을 반환"""
-        variants = [destination.lower()]  # 원본 지역명
-        
-        # 지역별 약칭 및 별칭 추가
-        destination_mapping = {
-            "부산": ["부산", "부산시", "부산광역시", "해운대", "서면", "남포동", "광안리", "동래", "부산진"],
-            "서울": ["서울", "서울시", "서울특별시", "강남", "홍대", "명동", "이태원", "잠실", "강북"],
-            "제주도": ["제주", "제주도", "제주시", "서귀포", "애월", "성산", "한라산", "제주특별자치도"],
-            "여수": ["여수", "여수시", "여수항", "돌산공원", "여수엑스포"],
-            "도쿄": ["도쿄", "tokyo", "신주쿠", "시부야", "하라주쿠", "우에노", "아사쿠사"],
-            "파리": ["파리", "paris", "몽마르트", "샹젤리제", "루브르", "에펠탑"],
-            "세종": ["세종", "세종시", "세종특별자치시", "세종특별자치도"],
-            "대구": ["대구", "대구시", "대구광역시", "동성로", "서문시장", "수성구"],
-            "인천": ["인천", "인천시", "인천광역시", "송도", "월미도", "인천공항"],
-            "광주": ["광주", "광주시", "광주광역시", "유스퀘어", "상무지구"],
-            "대전": ["대전", "대전시", "대전광역시", "유성구", "중앙로"],
-            "울산": ["울산", "울산시", "울산광역시", "울산항", "태화강"],
-            "수원": ["수원", "수원시", "경기도수원시", "화성", "수원화성"],
-            "고양": ["고양", "고양시", "경기도고양시", "일산", "덕양구"],
-            "용인": ["용인", "용인시", "경기도용인시", "에버랜드", "기흥구"],
-            "성남": ["성남", "성남시", "경기도성남시", "분당", "판교"],
-            "부천": ["부천", "부천시", "경기도부천시", "상동", "중동"],
-            # 강원도 지역별 세부 매핑 추가 - 각 도시별로 독립적으로 검색되도록 설정
-            "강릉": ["강릉", "강릉시", "강원도강릉시", "강릉해변", "강릉시내", "경포대", "정동진"],
-            "속초": ["속초", "속초시", "강원도속초시", "속초해수욕장", "속초항", "설악산입구"],
-            "춘천": ["춘천", "춘천시", "강원도춘천시", "남이섬", "춘천호", "명동거리"],
-            "평창": ["평창", "평창군", "강원도평창군", "평창올림픽", "대관령", "용평리조트"],
-            "원주": ["원주", "원주시", "강원도원주시", "원주시내", "치악산"],
-            "동해": ["동해", "동해시", "강원도동해시", "동해항", "망상해수욕장"],
-            "태백": ["태백", "태백시", "강원도태백시", "태백산", "태백시내"],
-            "삼척": ["삼척", "삼척시", "강원도삼척시", "삼척해변", "환선굴", "용화해수욕장"],
-            "안산": ["안산", "안산시", "경기도안산시", "단원구", "상록구"],
-            "안양": ["안양", "안양시", "경기도안양시", "만안구", "동안구"],
-            "평택": ["평택", "평택시", "경기도평택시", "평택항", "송탄"],
-            "시흥": ["시흥", "시흥시", "경기도시흥시", "정왕동", "연성동"],
-            "김포": ["김포", "김포시", "경기도김포시", "김포공항", "운양동"],
-            "화성": ["화성", "화성시", "경기도화성시", "오산", "병점"],
-            "광명": ["광명", "광명시", "경기도광명시", "철산동", "광명동"],
-            "군포": ["군포", "군포시", "경기도군포시", "산본동", "금정동"],
-            "오산": ["오산", "오산시", "경기도오산시", "오산동", "청호동"],
-            "이천": ["이천", "이천시", "경기도이천시", "장호원", "마장"],
-            "안성": ["안성", "안성시", "경기도안성시", "공도", "보개"],
-            "포천": ["포천", "포천시", "경기도포천시", "운악산", "소흘"],
-            "양평": ["양평", "양평군", "경기도양평군", "양수리", "청운"],
-            "여주": ["여주", "여주시", "경기도여주시", "가남", "능서"],
-            "양주": ["양주", "양주시", "경기도양주시", "회천", "백석"],
-            "동두천": ["동두천", "동두천시", "경기도동두천시", "생연동", "보산동"],
-            "가평": ["가평", "가평군", "경기도가평군", "청평", "설악"],
-            "연천": ["연천", "연천군", "경기도연천군", "전곡", "청산"],
-            "과천": ["과천", "과천시", "경기도과천시", "과천동", "문원동"],
-            "의왕": ["의왕", "의왕시", "경기도의왕시", "왕곡동", "오전동"],
-            "하남": ["하남", "하남시", "경기도하남시", "하남동", "광주동"],
-            "구리": ["구리", "구리시", "경기도구리시", "인창동", "교문동"],
-            "남양주": ["남양주", "남양주시", "경기도남양주시", "와부", "진건"],
-            "파주": ["파주", "파주시", "경기도파주시", "운정", "문산"],
-            "고양": ["고양", "고양시", "경기도고양시", "일산", "덕양구"],
-            "의정부": ["의정부", "의정부시", "경기도의정부시", "의정부동", "호원동"],
-            "양주": ["양주", "양주시", "경기도양주시", "회천", "백석"],
-            "동두천": ["동두천", "동두천시", "경기도동두천시", "생연동", "보산동"],
-            "가평": ["가평", "가평군", "경기도가평군", "청평", "설악"],
-            "연천": ["연천", "연천군", "경기도연천군", "전곡", "청산"],
-            "과천": ["과천", "과천시", "경기도과천시", "과천동", "문원동"],
-            "의왕": ["의왕", "의왕시", "경기도의왕시", "왕곡동", "오전동"],
-            "하남": ["하남", "하남시", "경기도하남시", "하남동", "광주동"],
-            "구리": ["구리", "구리시", "경기도구리시", "인창동", "교문동"],
-            "남양주": ["남양주", "남양주시", "경기도남양주시", "와부", "진건"],
-            "파주": ["파주", "파주시", "경기도파주시", "운정", "문산"],
-            "고양": ["고양", "고양시", "경기도고양시", "일산", "덕양구"],
-            "의정부": ["의정부", "의정부시", "경기도의정부시", "의정부동", "호원동"]
-        }
-        
-        # 매핑된 지역명이 있으면 해당 변형들 추가
-        if destination in destination_mapping:
-            variants.extend([v.lower() for v in destination_mapping[destination]])
-        
-        # 일반적인 지역명 패턴 추가
-        if "시" in destination:
-            variants.append(destination.replace("시", "").lower())
-        if "도" in destination:
-            variants.append(destination.replace("도", "").lower())
-        if "군" in destination:
-            variants.append(destination.replace("군", "").lower())
-        
-        # 중복 제거 및 반환
-        return list(set(variants))
-
-# ========================================
-# 카카오 로컬 API 서비스 클래스
-# ========================================
-class KakaoLocalService:
-    """카카오 로컬 API를 사용하여 장소 검색 및 검증을 수행하는 서비스"""
-    
-    def __init__(self, api_key: str = None):
         self.api_key = api_key or kakao_api_key
         self.base_url = "https://dapi.kakao.com/v2/local/search/keyword.json"
         
@@ -1121,44 +520,42 @@ async def regenerate_failed_activities(trip_data: dict, failed_activities: list,
                         })
             
             # 재생성 프롬프트
-            regeneration_prompt = f"""
-검증에 실패한 "{original.get('title', '')}" 활동을 {destination} 지역의 **실제 존재하는 유명한 관광지**로 대체해주세요.
+            regeneration_prompt = f"""Replace failed activity "{original.get('title', '')}" with real {destination} tourist spot.
 
-🚨 **중복 절대 금지**: 아래 이미 사용된 장소들과 절대 겹치면 안 됩니다:
+🚨 **NO DUPLICATES**: Don't use these already used places:
 {json.dumps(all_used_locations, ensure_ascii=False, indent=2)}
 
-현재 {day_num}일차 다른 활동들:
+Current day {day_num} activities:
 {json.dumps(other_activities, ensure_ascii=False, indent=2)}
 
-🚨 **절대 지켜야 할 규칙**:
-1. **위에 나열된 이미 사용된 장소들과 절대 겹치면 안 됩니다** - 최우선 규칙!
-2. **실제 존재하는 유명한 관광지만 사용** - 가짜 장소 절대 금지
-3. {destination} 지역의 대표적인 랜드마크나 유명 관광지만 선택
-4. 확실하지 않은 주소나 장소는 절대 사용하지 마세요
-5. 기존 시간대({original.get('time', '')})와 비슷한 시간으로 설정
-6. **반드시 구체적인 고유명사를 사용하세요**:
-   ❌ 잘못된 예: "해변 산책", "시장 구경", "공원 방문", "○○동 762번지"
-   ✅ 올바른 예: "해운대해수욕장", "자갈치시장", "남산공원"
-   ⚠️ 해변 관련: "해변" 대신 "해수욕장" 사용 (예: "하조대 해변" → "하조대해수욕장")
-7. location 필드는 유명한 관광지명이나 정확한 도로명주소만 사용
-8. JSON 형식으로 단일 activity 객체만 반환
+🚨 **RULES**:
+1. **NO duplicates with listed places above** - TOP PRIORITY!
+2. **Use only real famous tourist spots** - NO fake places
+3. Choose only famous landmarks in {destination}
+4. Don't use uncertain addresses or places
+5. Keep similar time as original ({original.get('time', '')})
+6. **Use specific proper nouns**:
+   ❌ Wrong: "beach walk", "market tour", "park visit"
+   ✅ Correct: "Haeundae Beach", "Jagalchi Market", "Namsan Park"
+7. location field: famous tourist spot names only
+8. Return single activity object in JSON format
 
-**{destination} 지역 유명 관광지 예시 참고**:
-- 부산: 해운대해수욕장, 광안리해수욕장, 자갈치시장, 감천문화마을, 태종대
-- 서울: 경복궁, 남산타워, 명동, 인사동, 한강공원
-- 제주: 성산일출봉, 한라산, 천지연폭포, 협재해수욕장
+**{destination} famous spots**:
+- Busan: Haeundae Beach, Gwangalli Beach, Jagalchi Market, Gamcheon Culture Village, Taejongdae
+- Seoul: Gyeongbokgung Palace, N Seoul Tower, Myeongdong, Insadong, Han River Park
+- Jeju: Seongsan Ilchulbong, Hallasan, Cheonjiyeon Falls, Hyeopjae Beach
 
-🔑 **중요: location과 title 필드 구분**
-- **location**: 실제 장소명만 (예: "해운대해수욕장", "자갈치시장")  
-- **title**: 화면에 표시될 활동명 (예: "해운대 산책", "자갈치 시장 투어")
+🔑 **IMPORTANT: location vs title fields**
+- **location**: actual place name only (e.g., "Haeundae Beach", "Jagalchi Market")
+- **title**: display activity name (e.g., "Haeundae walk", "Jagalchi market tour")
 
-JSON 형식:
+JSON format:
 {{
-    "time": "시간",
-    "title": "활동명 (예: 해운대 산책)",
-    "location": "실제 장소명만 (예: 해운대해수욕장)",
-    "description": "활동 설명",
-    "duration": "소요시간"
+    "time": "time",
+    "title": "activity name (e.g., Haeundae walk)",
+    "location": "actual place name only (e.g., Haeundae Beach)",
+    "description": "activity description",
+    "duration": "duration"
 }}
 """
             
@@ -1166,7 +563,7 @@ JSON 형식:
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "당신은 한국 관광 전문가입니다. 검증에 실패한 가짜 장소를 실제 존재하는 유명한 관광지로 교체해주세요. 🚨 최우선 규칙: 이미 사용된 장소들과 절대 중복되면 안 됩니다! 절대 가짜 주소나 존재하지 않는 장소를 만들어내지 마세요. 확실하지 않은 장소는 사용하지 말고 대표적인 유명 관광지만 선택하세요."},
+                    {"role": "system", "content": "You are a Korean tourism expert. Replace failed fake places with real famous tourist spots. 🚨 TOP RULE: NO duplicates with already used places! Don't create fake addresses or non-existent places. Use only famous landmarks you're certain about."},
                     {"role": "user", "content": regeneration_prompt}
                 ],
                 max_tokens=500,
@@ -1638,26 +1035,25 @@ async def replace_single_duplicate_activity(trip_data: dict, day_idx: int, activ
                     used_locations.add(act.get('location').lower())
         
         # 빠른 교체용 프롬프트 (간소화)
-        replacement_prompt = f"""
-중복된 "{original.get('title', '')}" 활동을 {destination}의 다른 유명 관광지로 즉시 교체해주세요.
+        replacement_prompt = f"""Replace duplicate "{original.get('title', '')}" activity with different famous {destination} tourist spot.
 
-🚨 **사용하면 안 되는 장소들** (이미 사용됨):
+🚨 **BANNED PLACES** (already used):
 {', '.join(list(used_titles)[:10])}...
 
-**요구사항**:
-1. {destination} 지역의 실제 존재하는 유명 관광지만 사용
-2. 위에 나열된 장소들과 절대 겹치지 않는 새로운 장소
-3. JSON 형식으로 단일 activity만 반환
+**REQUIREMENTS**:
+1. Use only real famous tourist spots in {destination}
+2. New place that doesn't overlap with listed places above
+3. Return single activity in JSON format
 
-🔑 **중요: location과 title 필드 구분**
-- **location**: 실제 장소명만 (예: "광안리해수욕장", "국제시장")
-- **title**: 화면에 표시될 활동명 (예: "광안리 산책", "국제시장 투어")
+🔑 **IMPORTANT: location vs title fields**
+- **location**: actual place name only (e.g., "Gwangalli Beach", "Gukje Market")
+- **title**: display activity name (e.g., "Gwangalli walk", "Gukje market tour")
 
 {{
     "time": "{original.get('time', '09:00')}",
-    "title": "새로운 활동명 (예: 광안리 산책)",
-    "location": "실제 장소명만 (예: 광안리해수욕장)",
-    "description": "활동 설명",
+    "title": "new activity name (e.g., Gwangalli walk)",
+    "location": "actual place name only (e.g., Gwangalli Beach)",
+    "description": "activity description"
 }}
 """
         
@@ -1665,7 +1061,7 @@ async def replace_single_duplicate_activity(trip_data: dict, day_idx: int, activ
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": f"당신은 {destination} 관광 전문가입니다. 중복된 장소를 빠르게 다른 유명 관광지로 교체해주세요. 간단하고 빠르게 응답해주세요."},
+                {"role": "system", "content": f"You are a {destination} tourism expert. Quickly replace duplicate places with different famous tourist spots. Respond simply and quickly."},
                 {"role": "user", "content": replacement_prompt}
             ],
             max_tokens=300,  # 토큰 수 줄임
@@ -1779,64 +1175,64 @@ async def replace_duplicate_activities(trip_data: dict, duplicates: list, destin
             
             # 교체용 프롬프트 (더 강화된 버전)
             replacement_prompt = f"""
-🚨 **중복 장소 교체 요청** 🚨
+🚨 **DUPLICATE PLACE REPLACEMENT REQUEST** 🚨
 
-"{original.get('title', '')}" 활동이 다른 날짜와 중복되어 교체가 필요합니다.
-{destination} 지역의 **완전히 다른 새로운 장소**로 교체해주세요.
+"{original.get('title', '')}" activity is duplicated with other dates and needs replacement.
+Replace with **completely different new place** in {destination}.
 
-**현재 {day_num}일차 다른 활동들:**
+**Current day {day_num} other activities:**
 {json.dumps(other_activities, ensure_ascii=False, indent=2)}
 
-**🚫 절대 사용하면 안 되는 장소들 (이미 일정에 포함됨):**
+**🚫 BANNED PLACES (already in schedule):**
 {', '.join(sorted(list(all_used_locations))[:20])}
-... (총 {len(all_used_locations)}개 장소가 이미 사용됨)
+... (total {len(all_used_locations)} places already used)
 
-**⚠️ 중복 방지 규칙 (매우 중요!):**
-1. **위에 나열된 모든 장소와 완전히 다른 곳만 선택**
-2. **유사한 장소도 절대 금지**: 
-   - 예: "해운대해수욕장" 사용 시 → "해운대카페", "해운대근처" 등 해운대 관련 모든 장소 금지
-   - 예: "자갈치시장" 사용 시 → "자갈치회센터", "자갈치근처" 등 자갈치 관련 모든 장소 금지
-3. **같은 지역/건물 내 다른 시설도 금지**
-4. **완전히 다른 지역의 다른 유형 장소만 선택**
+**⚠️ DUPLICATE PREVENTION RULES (VERY IMPORTANT!):**
+1. **Choose only places completely different from all listed above**
+2. **Similar places also banned**: 
+   - If "Haeundae Beach" used → "Haeundae Cafe", "near Haeundae" etc. all banned
+   - If "Jagalchi Market" used → "Jagalchi Fish Center", "near Jagalchi" etc. all banned
+3. **Different facilities in same area/building also banned**
+4. **Choose only different area, different type of place**
 
-**✅ 교체 요구사항:**
-1. {destination} 지역의 실제 존재하는 유명 관광지만 사용
-2. 시간대: {original.get('time', '')} 유지
-3. 지리적으로 {day_num}일차 다른 활동들과 접근 가능한 곳
-4. **반드시 구체적인 고유명사 사용**:
-   ❌ "다른 해변", "새로운 시장", "또 다른 공원"
-   ✅ "송도해수욕장", "국제시장", "용두산공원"
-   ⚠️ 해변 관련: "해변" 대신 "해수욕장" 사용
+**✅ REPLACEMENT REQUIREMENTS:**
+1. Use only real famous tourist spots in {destination}
+2. Keep time: {original.get('time', '')}
+3. Geographically accessible with other day {day_num} activities
+4. **Use specific proper nouns**:
+   ❌ "another beach", "new market", "another park"
+   ✅ "Songdo Beach", "Gukje Market", "Yongdusan Park"
+   ⚠️ For beaches: use "Beach" instead of "beach"
 
-🔑 **중요: location과 title 필드 구분**
-- **location**: 실제 장소명만 (예: "태종대", "감천문화마을")
-- **title**: 화면에 표시될 활동명 (예: "태종대 산책", "감천문화마을 투어")
+🔑 **IMPORTANT: location vs title fields**
+- **location**: actual place name only (e.g., "Taejongdae", "Gamcheon Culture Village")
+- **title**: display activity name (e.g., "Taejongdae walk", "Gamcheon tour")
 
-**JSON 응답 형식:**
+**JSON response format:**
 {{
     "time": "{original.get('time', '')}",
-    "title": "새로운 활동명 (예: 태종대 산책)",
-    "location": "실제 장소명만 (예: 태종대)",
-    "description": "새로운 활동에 대한 설명",
+    "title": "new activity name (e.g., Taejongdae walk)",
+    "location": "actual place name only (e.g., Taejongdae)",
+    "description": "description of new activity"
 }}
 
-**⚠️ 주의**: 위에 나열된 사용 금지 장소들과 조금이라도 유사하면 절대 사용하지 마세요!
+**⚠️ WARNING**: Don't use anything even slightly similar to banned places above!
 """
             
             # OpenAI API 호출
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": """당신은 한국 관광 전문가입니다. 중복 장소 교체를 담당합니다.
+                    {"role": "system", "content": """You are a Korean tourism expert handling duplicate place replacement.
 
-🚨 **절대 규칙**:
-1. **중복 절대 금지**: 사용자가 제공한 "사용하면 안 되는 장소" 목록과 조금이라도 유사한 곳은 절대 선택하지 마세요
-2. **유사 장소도 금지**: 같은 지역/건물/시설군의 다른 장소도 금지 (예: 해운대해수욕장 → 해운대 관련 모든 장소 금지)
-3. **구체적 고유명사만**: "다른 해변", "새로운 시장" 같은 모호한 표현 절대 금지
-4. **실제 존재 확인**: 확실히 존재하는 유명 관광지만 선택
-5. **완전히 다른 지역**: 기존 장소들과 완전히 다른 지역의 다른 유형 장소만 선택
+🚨 **ABSOLUTE RULES**:
+1. **NO DUPLICATES**: Don't choose anything even slightly similar to "banned places" list
+2. **Similar places also banned**: Different facilities in same area/building also banned (e.g., Haeundae Beach → all Haeundae-related places banned)
+3. **Specific proper nouns only**: No vague expressions like "another beach", "new market"
+4. **Real existence confirmed**: Choose only famous tourist spots you're certain exist
+5. **Completely different area**: Choose only different area, different type of place from existing ones
 
-⚠️ 의심스러우면 선택하지 마세요. 확실한 곳만 추천하세요."""},
+⚠️ If uncertain, don't choose. Recommend only places you're certain about."""},
                     {"role": "user", "content": replacement_prompt}
                 ],
                 max_tokens=500,
@@ -2398,63 +1794,63 @@ async def plan_trip(request: TripRequest):
         # OpenAI API에 전달할 프롬프트(질문)를 생성합니다
         # 프롬프트는 AI에게 무엇을 해달라고 요청하는 메시지입니다
         prompt = f"""
-목적지: {request.destination}
-여행 기간: {request.start_date} ~ {request.end_date} (총 {travel_days}일)
-인원수: {request.guests}명
-객실: {request.rooms}개
-예산: {request.budget}
-관심사: {', '.join(request.interests) if request.interests else '일반적인 관광'}
-여행 페이스: {request.travelPace if request.travelPace else '보통'}
+Destination: {request.destination}
+Travel period: {request.start_date} ~ {request.end_date} (total {travel_days} days)
+People: {request.guests}
+Rooms: {request.rooms}
+Budget: {request.budget}
+Interests: {', '.join(request.interests) if request.interests else 'general tourism'}
+Travel pace: {request.travelPace if request.travelPace else 'normal'}
 
-위 조건에 맞는 여행 일정을 짜주세요.
+Create a travel itinerary matching these conditions.
 
-🚨 **최우선 규칙: 장소 중복 절대 금지**
+🚨 **TOP RULE: NO DUPLICATE PLACES**
 
-**⚠️ 중요: 작성하기 전에 반드시 다음 단계를 따르세요:**
+**⚠️ IMPORTANT: Follow these steps before writing:**
 
-1️⃣ **1일차 활동 작성** → 사용된 장소들을 기억하세요
-2️⃣ **2일차 활동 작성 전** → 1일차에서 사용한 모든 장소와 겹치지 않는지 확인
-3️⃣ **3일차 활동 작성 전** → 1일차, 2일차에서 사용한 모든 장소와 겹치지 않는지 확인
-4️⃣ **이런 식으로 매일 이전 모든 날짜의 장소들을 피해서 작성**
+1️⃣ **Write Day 1 activities** → Remember used places
+2️⃣ **Before writing Day 2** → Check no overlap with Day 1 places
+3️⃣ **Before writing Day 3** → Check no overlap with Day 1 & 2 places
+4️⃣ **Continue avoiding all previous days' places**
 
-**중복 금지 예시:**
-❌ 1일차: "해운대해수욕장 산책" → 2일차: "해운대해수욕장에서 일출보기" (같은 장소!)
-❌ 1일차: "남산타워" → 3일차: "N서울타워" (같은 장소의 다른 이름!)
-❌ 1일차: "자갈치시장" → 2일차: "자갈치시장 회센터" (같은 건물 내!)
+**Duplicate prevention examples:**
+❌ Day 1: "Haeundae Beach walk" → Day 2: "Sunrise at Haeundae Beach" (same place!)
+❌ Day 1: "N Seoul Tower" → Day 3: "Namsan Tower" (same place, different name!)
+❌ Day 1: "Jagalchi Market" → Day 2: "Jagalchi Fish Center" (same building!)
 
-✅ 1일차: "해운대해수욕장" → 2일차: "광안리해수욕장" (완전히 다른 해수욕장)
-✅ 1일차: "경복궁" → 2일차: "창덕궁" (완전히 다른 궁궐)
+✅ Day 1: "Haeundae Beach" → Day 2: "Gwangalli Beach" (completely different beach)
+✅ Day 1: "Gyeongbokgung Palace" → Day 2: "Changdeokgung Palace" (different palace)
 
-**여행 페이스별 활동 개수:**
-- "널널하게": 하루에 3개 활동 (여유롭게 천천히)
-- "타이트하게": 하루에 4개 활동 (알차게 많은 곳 방문)
+**Activities per travel pace:**
+- "Relaxed": 3 activities per day (leisurely pace)
+- "Tight": 4 activities per day (packed schedule)
 
-**다른 규칙들:**
-- 애매한 이름 금지: "부산 해변" → "해운대해수욕장", "해변" → "해수욕장"
-- 호텔 정보 제외
-- 확실히 존재하는 유명한 장소만 추천
+**Other rules:**
+- No vague names: "Busan beach" → "Haeundae Beach", "beach" → "Beach"
+- Exclude hotel info
+- Recommend only famous places that definitely exist
 
-**⚠️ 작성 중 체크리스트:**
-□ 이 장소가 이전 날짜에 이미 나왔나?
-□ 비슷한 이름의 장소가 이미 있나?
-□ 같은 건물이나 지역 내 다른 시설인가?
-→ 하나라도 해당되면 완전히 다른 장소로 변경!
+**⚠️ Writing checklist:**
+□ Has this place appeared in previous days?
+□ Is there a similar-named place already?
+□ Is it a different facility in same building/area?
+→ If any applies, change to completely different place!
 
-**🔑 중요: location과 title 필드 구분**
-- **location**: 실제 장소명만 (예: "해운대해수욕장", "자갈치시장", "경복궁")
-- **해변 관련**: "해변" 대신 "해수욕장" 사용 (예: "하조대 해변" → "하조대해수욕장")
-- **title**: 화면에 표시될 활동명 (예: "해운대 산책", "자갈치 시장 투어", "경복궁 관람")
+**🔑 IMPORTANT: location vs title fields**
+- **location**: actual place name only (e.g., "Haeundae Beach", "Jagalchi Market", "Gyeongbokgung Palace")
+- **Beach related**: use "Beach" instead of "beach" (e.g., "Hajodae beach" → "Hajodae Beach")
+- **title**: display activity name (e.g., "Haeundae walk", "Jagalchi market tour", "Gyeongbokgung visit")
 
-**📝 여행 팁 작성 가이드:**
-- **구체적이고 실용적인 정보**: "날씨 확인하세요" ❌ → "강릉은 일교차가 커서 겉옷을 준비하세요" ✅
-- **지역별 특성 반영**: 해당 지역의 실제 특성과 주의사항 포함
-- **실제 도움이 되는 팁**: 관광객이 실제로 알아야 할 유용한 정보
-- **구체적인 시간/장소/방법**: "조금 일찍 가세요" ❌ → "해운대해수욕장은 오전 9시 이전이 한적합니다" ✅
-- **현지 정보**: 교통, 음식, 문화, 예약 등 실제 여행에 필요한 정보
-- **계절/날씨 고려**: 해당 여행 시기의 날씨와 계절적 특성 반영
-- **비용 관련**: 실제 비용이나 절약 방법 등 구체적인 금액 정보
+**📝 Travel tips writing guide:**
+- **Specific and practical info**: "Check weather" ❌ → "Gangneung has big temperature difference, bring outerwear" ✅
+- **Reflect regional characteristics**: Include actual local features and precautions
+- **Actually helpful tips**: Useful info tourists really need to know
+- **Specific time/place/method**: "Go a bit early" ❌ → "Haeundae Beach is quiet before 9 AM" ✅
+- **Local info**: Transportation, food, culture, reservations etc.
+- **Consider season/weather**: Reflect weather and seasonal characteristics
+- **Cost related**: Actual costs or money-saving methods
 
-JSON 형식으로 응답:
+Respond in JSON format:
 {{
     "destination": "{request.destination}",
     "duration": "{travel_days}일",
@@ -2465,19 +1861,19 @@ JSON 형식으로 응답:
             "activities": [
                 {{
                     "time": "09:00",
-                    "title": "활동명 (예: 해운대 산책)",
-                    "location": "실제 장소명만 (예: 해운대해수욕장, 하조대해수욕장)",
-                    "description": "활동 설명",
-                    "duration": "소요시간"
+                    "title": "activity name (e.g., Haeundae walk)",
+                    "location": "actual place name only (e.g., Haeundae Beach, Hajodae Beach)",
+                    "description": "activity description",
+                    "duration": "duration"
                 }}
             ]
         }}
     ],
     "total_cost": "1인당 XXX,XXX원",
     "tips": [
-        "구체적이고 실용적인 여행 팁 (예: '강릉은 일교차가 커서 겉옷을 준비하세요')",
-        "지역별 특성과 주의사항 (예: '해운대해수욕장은 오전 9시 이전이 한적합니다')", 
-        "현지 교통/음식/문화 정보 (예: '자갈치시장은 오후 2시 이후가 가장 활기찹니다')"
+        "Specific practical travel tip (e.g., 'Gangneung has big temperature difference, bring outerwear')",
+        "Regional characteristics and precautions (e.g., 'Haeundae Beach is quiet before 9 AM')", 
+        "Local transportation/food/culture info (e.g., 'Jagalchi Market is most lively after 2 PM')"
     ]
 }}
         """
@@ -2495,30 +1891,30 @@ JSON 형식으로 응답:
         response = client.chat.completions.create(
             model="gpt-4o",  # 사용할 AI 모델
             messages=[
-                {"role": "system", "content": f"""당신은 전문 여행 플래너입니다. {travel_days}일 여행 계획을 작성해주세요.
+                {"role": "system", "content": f"""You are a professional travel planner. Create a {travel_days}-day travel plan.
 
-🚨 **최우선 규칙: 장소 중복 절대 금지**
+🚨 **TOP RULE: NO DUPLICATE PLACES**
 
-**필수 작성 절차:**
-1. 1일차 모든 활동 작성 완료
-2. 2일차 작성 시: 1일차 장소들을 머릿속에서 확인하고 완전히 다른 장소만 선택
-3. 3일차 작성 시: 1일차+2일차 모든 장소들을 확인하고 완전히 다른 장소만 선택
-4. 매일 이전 모든 날짜의 장소를 피해서 작성
+**Required writing process:**
+1. Complete all Day 1 activities
+2. When writing Day 2: Check Day 1 places in mind, choose only completely different places
+3. When writing Day 3: Check all Day 1+2 places, choose only completely different places
+4. Write each day avoiding all previous days' places
 
-**중복 체크 방법:**
-- 장소명이 같으면 중복 (해운대해수욕장 = 해운대해수욕장)
-- 같은 장소의 다른 이름도 중복 (남산타워 = N서울타워)
-- 같은 건물/지역 내 시설도 중복 (자갈치시장 = 자갈치시장 회센터)
+**Duplicate check methods:**
+- Same place name = duplicate (Haeundae Beach = Haeundae Beach)
+- Same place with different name = duplicate (N Seoul Tower = Namsan Tower)
+- Different facilities in same building/area = duplicate (Jagalchi Market = Jagalchi Fish Center)
 
-**절대 하지 말 것:**
-❌ "1일차에 해운대해수욕장 → 2일차에 해운대해수욕장" 
-❌ 같은 장소를 다른 이름으로 반복
+**Never do:**
+❌ "Day 1: Haeundae Beach → Day 2: Haeundae Beach" 
+❌ Repeat same place with different names
 
-**반드시 할 것:**
-✅ 각 장소는 전체 여행에서 단 한 번만 등장
-✅ 구체적 고유명사 사용
-✅ 여행 페이스에 맞는 활동 개수: 널널하게(3개), 타이트하게(4개)
-✅ JSON 형식으로 정확히 응답"""},
+**Must do:**
+✅ Each place appears only once in entire trip
+✅ Use specific proper nouns
+✅ Match travel pace activity count: Relaxed(3), Tight(4)
+✅ Respond accurately in JSON format"""},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=3000,  # AI 응답의 최대 길이 (더 긴 응답을 위해 증가)
@@ -2692,7 +2088,7 @@ JSON 형식으로 응답:
             
             return TripPlan(
                 destination=request.destination,
-                duration=f"{request.start_date} ~ {request.end_date}",
+                duration=f"{travel_days}일",
                 itinerary=itinerary_list,
                 total_cost=f"1인당 {estimated_cost_per_person:,}원",
                 tips=["여행 전 날짜 확인", "필수품 준비", "현지 교통 정보 파악"],
@@ -2851,82 +2247,82 @@ async def modify_trip_chat(request: ChatModifyRequest):
         
         # GPT에게 수정 요청을 처리하도록 하는 프롬프트
         modify_prompt = f"""
-다음은 현재 여행 계획입니다:
+Here is the current travel plan:
 
 {current_plan_str}
 
-사용자의 수정 요청: "{request.message}"
+User's modification request: "{request.message}"
 
-위 수정 요청에 따라 여행 계획을 수정해주세요. 
+Please modify the travel plan according to the above request.
 
-**🚨 중요 제한사항:**
-- **일정 추가 제한**: 각 일차당 최대 5개 활동까지만 가능합니다. 이미 5개 활동이 있는 일차에는 추가할 수 없습니다.
-- **일정 삭제 제한**: 각 일차당 최소 2개 활동은 유지해야 합니다. 2개 활동만 남은 일차에서는 삭제할 수 없습니다.
+**🚨 IMPORTANT LIMITATIONS:**
+- **Activity addition limit**: Maximum 5 activities per day. Cannot add to days that already have 5 activities.
+- **Activity deletion limit**: Must maintain minimum 2 activities per day. Cannot delete from days that only have 2 activities.
 
-**수정 기능별 처리 방법:**
+**Modification methods by function:**
 
-1. **일정 추가 요청**:
-   - "1일차 일정 늘려줘", "2일차에 활동 하나 더 추가해줘" → 해당 일차에 새로운 활동 1개 추가
-   - "○일차 오후에 뭔가 더 추가해줘" → 해당 일차 오후 시간대에 활동 추가
-   - **제한 확인**: 해당 일차가 이미 5개 활동을 가지고 있다면 추가할 수 없습니다.
-   - 새 활동은 해당 지역의 실제 존재하는 관광지로 설정
-   - 기존 활동들과 시간이 겹치지 않도록 적절한 시간 배정
-   - 기존 활동들과 중복되지 않는 새로운 장소 선택
+1. **Activity addition requests**:
+   - "Add more to Day 1", "Add one more activity to Day 2" → Add 1 new activity to that day
+   - "Add something to Day X afternoon" → Add activity to afternoon time slot
+   - **Limit check**: Cannot add if that day already has 5 activities.
+   - New activity should be real tourist spot in that area
+   - Assign appropriate time that doesn't conflict with existing activities
+   - Choose new place that doesn't duplicate existing activities
 
-2. **일정 제거 요청**:
-   - "1일차 ○○ 빼줘", "2일차 마사지 제거해줘" → 해당 활동을 완전히 제거
-   - "○일차 오후 일정 빼줘" → 해당 시간대의 활동 제거
-   - **제한 확인**: 해당 일차가 2개 활동만 남는다면 삭제할 수 없습니다.
-   - 제거 후 시간 간격이 너무 크면 다른 활동들의 시간을 자연스럽게 조정
+2. **Activity removal requests**:
+   - "Remove XX from Day 1", "Remove massage from Day 2" → Completely remove that activity
+   - "Remove Day X afternoon schedule" → Remove activity from that time slot
+   - **Limit check**: Cannot delete if that day only has 2 activities left.
+   - Adjust other activities' times naturally if gap becomes too large after removal
 
-3. **일정 교체 요청**:
-   - "1일차 ○○를 다른 곳으로 바꿔줘" → 해당 활동을 같은 시간대의 다른 활동으로 교체
-   - "2일차 마사지를 맛집으로 바꿔줘" → 해당 활동을 요청한 종류의 활동으로 교체
-   - 시간대와 소요시간은 유지하되 내용만 변경
+3. **Activity replacement requests**:
+   - "Change XX in Day 1 to somewhere else" → Replace that activity with different activity at same time
+   - "Change massage in Day 2 to restaurant" → Replace with requested type of activity
+   - Keep time slot and duration, only change content
 
-4. **장소 간 교체/이동 요청**:
-   - "2일차 ○○과 3일차 △△ 바꿔줘" → 두 활동의 위치를 서로 교환
-   - "1일차 ○○를 2일차로 옮겨줘" → 활동을 다른 일차로 이동
-   - **제한 확인**: 이동 대상 일차가 이미 5개 활동을 가지고 있다면 이동할 수 없습니다.
-   - 시간대는 각 일차의 기존 패턴에 맞게 조정
+4. **Activity swap/move requests**:
+   - "Swap XX in Day 2 with △△ in Day 3" → Exchange positions of two activities
+   - "Move XX from Day 1 to Day 2" → Move activity to different day
+   - **Limit check**: Cannot move if target day already has 5 activities.
+   - Adjust time slots to match each day's existing pattern
 
-5. **활동 내용 변경**:
-   - "○일차 ○○를 더 재미있게 바꿔줘" → 같은 장소에서 다른 활동으로 변경
-   - "1일차를 더 액티브하게 바꿔줘" → 해당 일차 전체를 더 활동적인 내용으로 변경
+5. **Activity content changes**:
+   - "Make XX in Day X more fun" → Change to different activity at same place
+   - "Make Day 1 more active" → Change entire day to more active content
 
-**필수 준수 사항:**
-- 새로 추가/변경되는 모든 장소는 해당 지역에 실제 존재하는 구체적인 관광지명 사용
-- 기존 활동들과 중복되지 않는 장소 선택
-- 시간 흐름이 자연스럽게 유지되도록 조정
-- destination, duration, total_cost, tips 등 기본 정보는 그대로 유지
-- **여행 팁도 함께 업데이트**: 수정된 일정에 맞게 여행 팁도 더 구체적이고 실용적으로 업데이트
-- JSON 형식을 정확히 유지
-- **제한사항 위반 시**: 해당 요청이 불가능하다는 메시지를 포함한 JSON 응답 반환
+**Required compliance:**
+- All new/changed places must be real, specific tourist spot names in that area
+- Choose places that don't duplicate existing activities
+- Maintain natural time flow
+- Keep basic info like destination, duration, total_cost, tips unchanged
+- **Update travel tips too**: Make tips more specific and practical to match modified schedule
+- Maintain accurate JSON format
+- **When limits violated**: Return JSON response with message that request is impossible
 
-**응답 형식**: 코드 블록 없이 순수 JSON만 반환하세요.
+**Response format**: Return pure JSON without code blocks.
 
-**예시 처리**:
-- "1일차 일정 늘려줘" → 1일차에 새로운 관광지 활동 1개 추가 (5개 미만인 경우)
-- "2일차 마사지 빼줘" → 2일차에서 마사지 관련 활동 제거 (3개 이상인 경우)
-- "3일차 ○○를 맛집으로 바꿔줘" → 3일차의 해당 활동을 현지 맛집 방문으로 교체
-- "1일차 ○○와 2일차 △△ 바꿔줘" → 두 활동의 일차를 서로 교환
+**Example processing**:
+- "Add more to Day 1" → Add 1 new tourist spot activity to Day 1 (if less than 5)
+- "Remove massage from Day 2" → Remove massage-related activity from Day 2 (if 3 or more)
+- "Change XX in Day 3 to restaurant" → Replace that activity with local restaurant visit
+- "Swap XX in Day 1 with △△ in Day 2" → Exchange the days of two activities
 
-**제한사항 위반 시 응답 예시**:
+**Response example when limits violated**:
 ```json
 {{
     "success": false,
-    "message": "죄송합니다. 해당 일차는 이미 최대 5개 활동을 가지고 있어 추가할 수 없습니다.",
+    "message": "Sorry, that day already has maximum 5 activities and cannot add more.",
     "current_activities": 5,
     "max_activities": 5
 }}
 ```
 
-또는
+or
 
 ```json
 {{
     "success": false,
-    "message": "죄송합니다. 해당 일차는 최소 2개 활동을 유지해야 하므로 삭제할 수 없습니다.",
+    "message": "Sorry, that day must maintain minimum 2 activities and cannot delete.",
     "current_activities": 2,
     "min_activities": 2
 }}

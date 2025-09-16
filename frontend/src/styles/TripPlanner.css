@@ -667,23 +667,48 @@
 /* 반응형 디자인 */
 @media (max-width: 768px) {
   .planner-container {
-    padding: 2rem 1.5rem;
-    margin: 1rem;
+    padding: 1.5rem 1rem;
+    margin: 0.5rem;
     border-radius: 16px;
+    min-height: calc(100vh - 1rem);
   }
   
   .planner-title {
-    font-size: 2.25rem;
+    font-size: 2rem;
+    line-height: 1.2;
+  }
+  
+  .planner-subtitle {
+    font-size: 1rem;
   }
   
   .progress-bar {
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1rem;
     padding: 0;
+    margin-bottom: 2rem;
   }
   
   .progress-bar::before {
     display: none;
+  }
+  
+  .progress-step {
+    width: 100%;
+    padding: 0.75rem;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .progress-number {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+  
+  .progress-label {
+    font-size: 0.8rem;
   }
   
   .options-grid {
@@ -692,8 +717,8 @@
   }
   
   .travel-style-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.25rem;
+    grid-template-columns: 1fr;
+    gap: 1rem;
     max-width: none;
   }
   
@@ -709,51 +734,12 @@
   
   .step-title {
     font-size: 1.5rem;
-    margin-bottom: 2rem;
-  }
-  
-  .option-button {
-    padding: 1.5rem 1rem;
-  }
-  
-  .next-button,
-  .submit-button {
-    padding: 1rem 2rem;
-    font-size: 1rem;
-  }
-
-  /* 모바일에서 자동완성 스타일 조정 */
-  .region-suggestions {
-    max-height: 150px;
-  }
-  
-  .suggestion-item {
-    padding: 1rem 1.25rem;
-    font-size: 1rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .planner-container {
-    padding: 1.5rem 1rem;
-  }
-  
-  .planner-title {
-    font-size: 2rem;
-  }
-  
-  .progress-step {
-    margin-bottom: 1rem;
-  }
-  
-  .progress-number {
-    width: 40px;
-    height: 40px;
-    font-size: 1rem;
+    margin-bottom: 1.5rem;
   }
   
   .option-button {
     padding: 1.25rem 0.75rem;
+    min-height: 80px;
   }
   
   .option-icon {
@@ -762,18 +748,151 @@
     font-size: 1.25rem;
   }
   
-  .travel-style-grid {
-    grid-template-columns: 1fr;
-    gap: 1rem;
+  .option-text {
+    font-size: 1.125rem;
   }
   
-  .style-checkbox-label {
-    padding: 1.25rem 0.75rem;
+  .next-button,
+  .submit-button {
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+    width: 100%;
+    min-height: 48px;
+  }
+
+  /* 모바일에서 자동완성 스타일 조정 */
+  .region-suggestions {
+    max-height: 150px;
+    border-radius: 0 0 12px 12px;
+  }
+  
+  .suggestion-item {
+    padding: 1rem 1.25rem;
+    font-size: 1rem;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  
+  /* 모바일에서 입력 필드 개선 */
+  .region-input {
+    font-size: 16px; /* iOS 줌 방지 */
+    min-height: 48px;
+  }
+  
+  .form-input,
+  .form-select {
+    font-size: 16px;
+    min-height: 48px;
+  }
+  
+  .guests-select {
+    font-size: 1.125rem;
+    min-height: 48px;
+  }
+  
+  /* 모바일에서 선택 요약 개선 */
+  .selection-summary {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .summary-item {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .planner-container {
+    padding: 1rem 0.75rem;
+    margin: 0.25rem;
+    border-radius: 12px;
+  }
+  
+  .planner-title {
+    font-size: 1.75rem;
+    line-height: 1.1;
+  }
+  
+  .planner-subtitle {
+    font-size: 0.9rem;
+  }
+  
+  .progress-step {
+    margin-bottom: 0.75rem;
+    padding: 0.5rem;
+  }
+  
+  .progress-number {
+    width: 32px;
+    height: 32px;
+    font-size: 0.875rem;
+  }
+  
+  .progress-label {
+    font-size: 0.75rem;
+  }
+  
+  .step-title {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  
+  .option-button {
+    padding: 1rem 0.5rem;
     min-height: 70px;
   }
   
+  .option-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+  }
+  
+  .option-text {
+    font-size: 1rem;
+  }
+  
+  .travel-style-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
+  .style-checkbox-label {
+    padding: 1rem 0.5rem;
+    min-height: 60px;
+  }
+  
   .style-text {
+    font-size: 0.875rem;
+  }
+  
+  .next-button,
+  .submit-button {
+    padding: 0.875rem 1rem;
     font-size: 0.9rem;
+  }
+  
+  .region-input {
+    font-size: 16px;
+    padding: 0.875rem 1rem;
+  }
+  
+  .form-input,
+  .form-select {
+    font-size: 16px;
+    padding: 0.875rem 1rem;
+  }
+  
+  .guests-select {
+    font-size: 1rem;
+    padding: 0.875rem 1rem;
+  }
+  
+  .summary-item {
+    padding: 0.625rem 0.875rem;
+    font-size: 0.8rem;
   }
 }
 

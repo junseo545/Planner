@@ -230,7 +230,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
             <DollarSign className="overview-icon purple" />
             <span className="overview-label">예상 비용</span>
             <p className="overview-value">
-              {tripPlan.total_cost.includes('1인당') ? tripPlan.total_cost : `1인당 ${tripPlan.total_cost}`}
+              {tripPlan.total_cost}
             </p>
           </div>
         </div>
@@ -377,32 +377,23 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
             <div className="chat-tab">
               <h3>일정 수정 요청</h3>
               <div className="chat-messages">
-                {chatHistory.length === 0 ? (
-                  <div className="chat-placeholder">
-                    <p><strong>일정 수정 예시:</strong></p>
-                    <p><strong>📅 일정 추가:</strong> "1일차 일정 늘려줘", "2일차 오후에 뭔가 더 추가해줘"</p>
-                    <p><strong>❌ 일정 제거:</strong> "1일차 마사지 빼줘", "2일차 오후 일정 제거해줘"</p>
-                    <p><strong>🔄 일정 교체:</strong> "3일차 마사지를 맛집으로 바꿔줘", "1일차 ○○를 다른 곳으로 바꿔줘"</p>
-                    <p><strong>↔️ 일정 이동:</strong> "2일차 해수욕장과 3일차 타워 바꿔줘", "1일차 아침 일정을 2일차로 옮겨줘"</p>
-                  </div>
-                ) : (
-                  chatHistory.map((msg, index) => (
-                    <div key={index} className={`chat-message ${msg.type}`}>
-                      {msg.message}
-                    </div>
-                  ))
-                )}
+                <div className="chat-placeholder">
+                  <p><strong>일정 수정 예시:</strong></p>
+                  <p><strong>📅 일정 추가:</strong> "1일차 일정 늘려줘", "2일차 오후에 뭔가 더 추가해줘"</p>
+                  <p><strong>❌ 일정 제거:</strong> "1일차 마사지 빼줘", "2일차 오후 일정 제거해줘"</p>
+                  <p><strong>🔄 일정 교체:</strong> "3일차 마사지를 맛집으로 바꿔줘", "1일차 ○○를 다른 곳으로 바꿔줘"</p>
+                  <p><strong>↔️ 일정 이동:</strong> "2일차 해수욕장과 3일차 타워 바꿔줘", "1일차 아침 일정을 2일차로 옮겨줘"</p>
+                </div>
               </div>
-              <div className="chat-input-container">
+              <div className="chat-input-container" style={{ opacity: 0.5, pointerEvents: 'none' }}>
                 <input
                   type="text"
-                  value={chatMessage}
-                  onChange={(e) => setChatMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="예: '1일차 일정 늘려줘', '2일차 마사지 빼줘', '3일차 ○○를 맛집으로 바꿔줘'"
+                  value=""
+                  placeholder="현재 기능을 구현중입니다"
                   className="chat-input"
+                  disabled
                 />
-                <button onClick={handleChatSubmit} className="chat-send-button">
+                <button className="chat-send-button" disabled>
                   <Send size={18} />
                 </button>
               </div>

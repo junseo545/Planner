@@ -130,6 +130,63 @@
   }
 }
 
+/* 모바일 전용 유틸리티 */
+@media (max-width: 768px) {
+  .mobile-hidden {
+    display: none !important;
+  }
+  
+  .mobile-full-width {
+    width: 100% !important;
+  }
+  
+  .mobile-text-center {
+    text-align: center !important;
+  }
+  
+  .mobile-p-0 {
+    padding: 0 !important;
+  }
+  
+  .mobile-m-0 {
+    margin: 0 !important;
+  }
+  
+  .mobile-stack {
+    flex-direction: column !important;
+  }
+  
+  .mobile-gap-1 {
+    gap: 0.25rem !important;
+  }
+  
+  .mobile-gap-2 {
+    gap: 0.5rem !important;
+  }
+  
+  .mobile-gap-3 {
+    gap: 0.75rem !important;
+  }
+}
+
+/* 터치 디바이스 최적화 */
+@media (hover: none) and (pointer: coarse) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .touch-friendly {
+    padding: 0.75rem 1rem;
+    min-height: 44px;
+  }
+  
+  .no-hover:hover {
+    transform: none !important;
+    box-shadow: inherit !important;
+  }
+}
+
 /* 플렉스 유틸리티 */
 .flex-center {
   display: flex;

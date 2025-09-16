@@ -132,58 +132,108 @@
 /* 반응형 디자인 */
 @media (max-width: 768px) {
   .header-container {
-    padding: 0 1.5rem;
+    padding: 0 1rem;
   }
   
   .header-content {
-    flex-direction: column;
-    gap: 1.5rem;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
     padding: 1rem 0;
-  }
-  
-  .header-nav {
     gap: 1rem;
   }
   
-  .header-nav-item {
-    padding: 0.5rem 1rem;
-    font-size: 0.8rem;
+  .header-brand {
+    flex: 1;
+    min-width: 0;
   }
   
   .header-title {
-    font-size: 1.25rem;
+    font-size: 1.125rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   
   .header-subtitle {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+    display: none; /* 모바일에서 부제목 숨김 */
   }
   
   .header-logo {
-    width: 40px;
-    height: 40px;
-    font-size: 1.25rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .header-container {
-    padding: 0 1rem;
+    width: 36px;
+    height: 36px;
+    font-size: 1.125rem;
   }
   
   .header-nav {
     gap: 0.5rem;
+    flex-shrink: 0;
   }
   
   .header-nav-item {
     padding: 0.5rem 0.75rem;
     font-size: 0.75rem;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   
   .header-nav-item span {
-    display: none;
+    display: none; /* 모바일에서 텍스트 숨김 */
+  }
+  
+  .header-nav-item svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-container {
+    padding: 0 0.75rem;
+  }
+  
+  .header-content {
+    padding: 0.75rem 0;
   }
   
   .header-title {
-    font-size: 1.125rem;
+    font-size: 1rem;
+  }
+  
+  .header-logo {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+  
+  .header-nav {
+    gap: 0.25rem;
+  }
+  
+  .header-nav-item {
+    padding: 0.5rem;
+    font-size: 0.7rem;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  .header-nav-item svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* 모바일 터치 최적화 */
+@media (hover: none) and (pointer: coarse) {
+  .header-nav-item:hover {
+    transform: none;
+    background: rgba(59, 130, 246, 0.1);
+  }
+  
+  .header-logo:hover {
+    transform: none;
   }
 }
