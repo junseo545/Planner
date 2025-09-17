@@ -4,7 +4,7 @@ import { TripResultProps, FeedbackData } from '../types';
 import TripMap from './TripMap';
 import FeedbackForm from './FeedbackForm';
 import { analyticsEvents } from '../utils/analytics';
-import { saveFeedbackToSupabase } from '../lib/feedbackService';
+import { saveFeedbackToSupabase } from '../lib/feedbackService.js';
 import '../styles/FeedbackForm.css';
 
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdated }): React.JSX.Element => {
