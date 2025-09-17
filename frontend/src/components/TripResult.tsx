@@ -368,8 +368,8 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
         </div>
       )}
 
-      {/* 하단 접힌 패널 */}
-      <div className={`bottom-panel ${isBottomPanelOpen ? 'open' : ''}`}>
+      {/* 하단 접힌 패널 - 임시로 숨김 */}
+      <div className={`bottom-panel ${isBottomPanelOpen ? 'open' : ''}`} style={{ display: 'none' }}>
         {/* 올리기 버튼 */}
         <div className="panel-toggle" onClick={() => setIsBottomPanelOpen(!isBottomPanelOpen)}>
           <ChevronUp className={`chevron-icon ${isBottomPanelOpen ? 'rotated' : ''}`} />
