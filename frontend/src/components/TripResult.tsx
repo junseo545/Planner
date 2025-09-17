@@ -1,14 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { ArrowLeft, ExternalLink, Download, MapPin, Calendar, DollarSign, ChevronUp, Send } from 'lucide-react';
-import { TripResultProps } from '../types';
+import { TripResultProps, FeedbackData } from '../types';
 import TripMap from './TripMap';
+import FeedbackForm from './FeedbackForm';
 import { analyticsEvents } from '../utils/analytics';
+import { saveFeedbackToSupabase } from '../lib/feedbackService';
+import '../styles/FeedbackForm.css';
 
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdated }): React.JSX.Element => {
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
-  const [chatMessage, setChatMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState<Array<{type: 'user' | 'assistant', message: string}>>([]);
   const [selectedDay, setSelectedDay] = useState(1);
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   // 지도에 표시할 위치 데이터 준비 (선택된 일차만)
   const mapLocations = useMemo(() => {
@@ -99,85 +102,48 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
   };
 
 
-  const handleChatSubmit = async (): Promise<void> => {
-    if (!chatMessage.trim()) return;
 
-    // GA4 이벤트 추적
-    analyticsEvents.buttonClick('trip_modification_request', 'trip_result');
 
-    // 사용자 메시지 추가
-    const userMessage = chatMessage.trim();
-    setChatHistory(prev => [...prev, { type: 'user', message: userMessage }]);
-    setChatMessage('');
-
-    // 백엔드에 실제 수정 요청을 보냅니다
+  const handleFeedbackSubmit = async (feedback: FeedbackData): Promise<void> => {
     try {
-      setChatHistory(prev => [...prev, { type: 'assistant', message: '요청을 처리중입니다...' }]);
-      
-      const apiUrl = import.meta.env.PROD 
-        ? 'https://planner-backend-3bcz.onrender.com/modify-trip-chat'
-        : 'http://localhost:8000/modify-trip-chat';
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: userMessage,
-          current_trip_plan: tripPlan
-        })
-      });
+      // GA4 이벤트 추적
+      analyticsEvents.buttonClick('feedback_submitted', 'trip_result');
 
-      const result = await response.json();
-      
-      if (result.success && result.modified_plan) {
-        // 수정된 계획으로 업데이트
-        setChatHistory(prev => {
-          // 마지막 "처리중" 메시지 제거하고 성공 메시지 추가
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { 
-            type: 'assistant', 
-            message: result.message 
-          };
-          return newHistory;
-        });
-        
-        // 상위 컴포넌트로 수정된 계획 전달
-        if (onTripUpdated) {
-          onTripUpdated(result.modified_plan);
-        }
-        
+      // Supabase에 피드백 저장
+      const feedbackData = {
+        ...feedback,
+        tripId: `${tripPlan.destination}_${Date.now()}`,
+        destination: tripPlan.destination,
+        duration: tripPlan.duration,
+        timestamp: new Date().toISOString()
+      };
+
+      const result = await saveFeedbackToSupabase(feedbackData);
+
+      if (result.success) {
+        setFeedbackSubmitted(true);
+        setShowFeedbackForm(false);
+        alert('피드백이 성공적으로 제출되었습니다! 소중한 의견 감사합니다. 🙏');
       } else {
-        setChatHistory(prev => {
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { 
-            type: 'assistant', 
-            message: result.message || '요청 처리 중 오류가 발생했습니다.' 
-          };
-          if (result.suggestion) {
-            newHistory.push({ type: 'assistant', message: result.suggestion });
-          }
-          return newHistory;
-        });
+        throw new Error(result.error || '피드백 제출 실패');
       }
     } catch (error) {
-      console.error('채팅 요청 오류:', error);
-      setChatHistory(prev => {
-        const newHistory = [...prev];
-        newHistory[newHistory.length - 1] = { 
-          type: 'assistant', 
-          message: '네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' 
-        };
-        return newHistory;
+      console.error('피드백 제출 오류:', error);
+      
+      // Supabase 오류가 있어도 로컬에 백업 저장
+      const feedbacks = JSON.parse(localStorage.getItem('trip_feedbacks') || '[]');
+      feedbacks.push({
+        ...feedback,
+        tripId: `${tripPlan.destination}_${Date.now()}`,
+        destination: tripPlan.destination,
+        duration: tripPlan.duration,
+        timestamp: new Date().toISOString()
       });
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleChatSubmit();
+      localStorage.setItem('trip_feedbacks', JSON.stringify(feedbacks));
+      
+      setFeedbackSubmitted(true);
+      setShowFeedbackForm(false);
+      alert('피드백이 로컬에 저장되었습니다! 소중한 의견 감사합니다. 🙏');
     }
   };
 
@@ -363,6 +329,45 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
         </div>
       </div>
 
+      {/* 평가 폼 */}
+      {!feedbackSubmitted && (
+        <div className="feedback-section">
+          {!showFeedbackForm ? (
+            <div className="feedback-prompt">
+              <h2 className="feedback-prompt-title">여행 계획이 도움이 되셨나요?</h2>
+              <p className="feedback-prompt-description">
+                소중한 피드백을 주시면 더 나은 서비스를 제공할 수 있습니다.
+              </p>
+              <button
+                onClick={() => {
+                  analyticsEvents.buttonClick('feedback_form_open', 'trip_result');
+                  setShowFeedbackForm(true);
+                }}
+                className="feedback-prompt-button"
+              >
+                평가하기
+              </button>
+            </div>
+          ) : (
+            <FeedbackForm
+              onSubmit={handleFeedbackSubmit}
+              onCancel={() => setShowFeedbackForm(false)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* 평가 완료 메시지 */}
+      {feedbackSubmitted && (
+        <div className="feedback-thanks">
+          <h2 className="feedback-thanks-title">감사합니다! 🙏</h2>
+          <p className="feedback-thanks-description">
+            소중한 피드백을 주셔서 정말 감사합니다!<br/>
+            여러분의 의견을 바탕으로 더욱 나은 여행 계획 서비스를 만들어가겠습니다. ✨
+          </p>
+        </div>
+      )}
+
       {/* 하단 접힌 패널 */}
       <div className={`bottom-panel ${isBottomPanelOpen ? 'open' : ''}`}>
         {/* 올리기 버튼 */}
@@ -389,11 +394,14 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
                 <input
                   type="text"
                   value=""
-                  placeholder="현재 기능을 구현중입니다"
+                  placeholder="현재 기능을 구현 중입니다"
                   className="chat-input"
                   disabled
                 />
-                <button className="chat-send-button" disabled>
+                <button 
+                  className="chat-send-button"
+                  disabled
+                >
                   <Send size={18} />
                 </button>
               </div>

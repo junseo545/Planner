@@ -525,6 +525,10 @@ async def regenerate_failed_activities(trip_data: dict, failed_activities: list,
 🚨 **NO DUPLICATES**: Don't use these already used places:
 {json.dumps(all_used_locations, ensure_ascii=False, indent=2)}
 
+**🌏 LANGUAGE REQUIREMENT:**
+- Write all activity titles and descriptions in Korean language
+- Use Korean for all text content in the response
+
 Current day {day_num} activities:
 {json.dumps(other_activities, ensure_ascii=False, indent=2)}
 
@@ -1044,6 +1048,7 @@ async def replace_single_duplicate_activity(trip_data: dict, day_idx: int, activ
 1. Use only real famous tourist spots in {destination}
 2. New place that doesn't overlap with listed places above
 3. Return single activity in JSON format
+4. **Write title and description in Korean language**
 
 🔑 **IMPORTANT: location vs title fields**
 - **location**: actual place name only (e.g., "Gwangalli Beach", "Gukje Market")
@@ -1179,6 +1184,10 @@ async def replace_duplicate_activities(trip_data: dict, duplicates: list, destin
 
 "{original.get('title', '')}" activity is duplicated with other dates and needs replacement.
 Replace with **completely different new place** in {destination}.
+
+**🌏 LANGUAGE REQUIREMENT:**
+- Write all activity titles and descriptions in Korean language
+- Use Korean for all text content in the response
 
 **Current day {day_num} other activities:**
 {json.dumps(other_activities, ensure_ascii=False, indent=2)}
@@ -1806,6 +1815,11 @@ Create a travel itinerary matching these conditions.
 
 🚨 **TOP RULE: NO DUPLICATE PLACES**
 
+**🌏 LANGUAGE REQUIREMENT:**
+- Write all activity titles and descriptions in Korean language
+- Use Korean for all text content in the response
+- Only location names can be in English if they are proper nouns
+
 **⚠️ IMPORTANT: Follow these steps before writing:**
 
 1️⃣ **Write Day 1 activities** → Remember used places
@@ -1914,7 +1928,8 @@ Respond in JSON format:
 ✅ Each place appears only once in entire trip
 ✅ Use specific proper nouns
 ✅ Match travel pace activity count: Relaxed(3), Tight(4)
-✅ Respond accurately in JSON format"""},
+✅ Respond accurately in JSON format
+✅ **IMPORTANT: Write all titles and descriptions in Korean language**"""},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=3000,  # AI 응답의 최대 길이 (더 긴 응답을 위해 증가)
@@ -1996,6 +2011,10 @@ Respond in JSON format:
                 
                 # 실제 장소 정보 추가 비활성화 (카카오 API만 사용)
                 logger.info("실제 장소 정보 추가가 비활성화되어 있습니다. 카카오 API만 사용합니다.")
+                
+                # 여행 팁을 최대 4개로 제한
+                if "tips" in trip_data and isinstance(trip_data["tips"], list):
+                    trip_data["tips"] = trip_data["tips"][:4]
                 
                 # TripPlan 모델로 변환하여 반환합니다
                 return TripPlan(**trip_data)
@@ -2086,12 +2105,21 @@ Respond in JSON format:
             # 1인당 예상 비용 계산 (예산 등급별 세부 계산)
             estimated_cost_per_person = calculate_trip_cost(request.budget, travel_days, request.destination)
             
+            # AI가 생성한 여행 팁을 사용하고 최대 4개로 제한
+            ai_tips = trip_data.get("tips", [])
+            if isinstance(ai_tips, list) and len(ai_tips) > 0:
+                # 최대 4개까지만 사용
+                limited_tips = ai_tips[:4]
+            else:
+                # AI가 팁을 생성하지 않은 경우 기본 팁 사용
+                limited_tips = ["여행 전 날짜 확인", "필수품 준비", "현지 교통 정보 파악", "현지 문화와 예의를 미리 알아보세요"]
+            
             return TripPlan(
                 destination=request.destination,
                 duration=f"{travel_days}일",
                 itinerary=itinerary_list,
                 total_cost=f"1인당 {estimated_cost_per_person:,}원",
-                tips=["여행 전 날짜 확인", "필수품 준비", "현지 교통 정보 파악"],
+                tips=limited_tips,
                 trip_hotel_search=trip_hotel_search
             )
             
@@ -2191,6 +2219,125 @@ async def health_check():
 
 
 # ========================================
+# 여행 계획 평가 피드백 API 엔드포인트
+# ========================================
+
+class TripFeedback(BaseModel):
+    """여행 계획 평가 피드백 데이터 모델"""
+    rating: int  # 별점 (1-5)
+    positivePoints: str  # 긍정 포인트
+    negativePoints: str  # 부정 포인트
+    tripId: str  # 여행 ID
+    destination: str  # 목적지
+    duration: str  # 여행 기간
+    timestamp: Optional[str] = None  # 제출 시간
+
+@app.post("/submit-feedback")
+async def submit_feedback(feedback: TripFeedback):
+    """여행 계획 평가 피드백을 수집하는 API"""
+    try:
+        # 현재 시간을 타임스탬프로 설정
+        if not feedback.timestamp:
+            feedback.timestamp = datetime.now().isoformat()
+        
+        # 피드백 데이터를 JSON 파일에 저장
+        feedback_data = {
+            "rating": feedback.rating,
+            "positivePoints": feedback.positivePoints,
+            "negativePoints": feedback.negativePoints,
+            "tripId": feedback.tripId,
+            "destination": feedback.destination,
+            "duration": feedback.duration,
+            "timestamp": feedback.timestamp
+        }
+        
+        # 피드백 파일 경로
+        feedback_file = "trip_feedbacks.json"
+        
+        # 기존 피드백 데이터 로드
+        try:
+            with open(feedback_file, 'r', encoding='utf-8') as f:
+                existing_feedbacks = json.load(f)
+        except FileNotFoundError:
+            existing_feedbacks = []
+        
+        # 새 피드백 추가
+        existing_feedbacks.append(feedback_data)
+        
+        # 파일에 저장
+        with open(feedback_file, 'w', encoding='utf-8') as f:
+            json.dump(existing_feedbacks, f, ensure_ascii=False, indent=2)
+        
+        # 로그 기록
+        logging.info(f"피드백 저장 완료: {feedback.tripId} - {feedback.rating}점")
+        
+        return {
+            "success": True,
+            "message": "피드백이 성공적으로 저장되었습니다.",
+            "feedback_id": feedback.tripId
+        }
+        
+    except Exception as e:
+        logging.error(f"피드백 저장 오류: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"피드백 저장 중 오류가 발생했습니다: {str(e)}"
+        )
+
+@app.get("/feedback-stats")
+async def get_feedback_stats():
+    """피드백 통계를 조회하는 API (관리자용)"""
+    try:
+        feedback_file = "trip_feedbacks.json"
+        
+        try:
+            with open(feedback_file, 'r', encoding='utf-8') as f:
+                feedbacks = json.load(f)
+        except FileNotFoundError:
+            return {
+                "total_feedbacks": 0,
+                "average_rating": 0,
+                "rating_distribution": {},
+                "recent_feedbacks": []
+            }
+        
+        if not feedbacks:
+            return {
+                "total_feedbacks": 0,
+                "average_rating": 0,
+                "rating_distribution": {},
+                "recent_feedbacks": []
+            }
+        
+        # 통계 계산
+        total_feedbacks = len(feedbacks)
+        ratings = [f["rating"] for f in feedbacks]
+        average_rating = sum(ratings) / len(ratings) if ratings else 0
+        
+        # 별점 분포 계산
+        rating_distribution = {}
+        for rating in range(1, 6):
+            rating_distribution[rating] = ratings.count(rating)
+        
+        # 최근 피드백 10개
+        recent_feedbacks = sorted(feedbacks, key=lambda x: x["timestamp"], reverse=True)[:10]
+        
+        return {
+            "total_feedbacks": total_feedbacks,
+            "average_rating": round(average_rating, 2),
+            "rating_distribution": rating_distribution,
+            "recent_feedbacks": recent_feedbacks
+        }
+        
+    except Exception as e:
+        logging.error(f"피드백 통계 조회 오류: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"피드백 통계 조회 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+# ========================================
 # 메인 실행 부분
 # ========================================
 # 이 파일을 직접 실행할 때만 서버를 시작합니다
@@ -2211,6 +2358,16 @@ class LocationFeedback(BaseModel):
     location: str
     feedback_type: str  # 'not-exist', 'wrong-info', etc.
     destination: str
+
+class TripFeedback(BaseModel):
+    """여행 계획 평가 피드백 데이터 모델"""
+    rating: int  # 별점 (1-5)
+    positivePoints: str  # 긍정 포인트
+    negativePoints: str  # 부정 포인트
+    tripId: str  # 여행 ID
+    destination: str  # 목적지
+    duration: str  # 여행 기간
+    timestamp: Optional[str] = None  # 제출 시간
 
 @app.post("/location-feedback")
 async def collect_location_feedback(feedback: LocationFeedback):
@@ -2254,6 +2411,11 @@ Here is the current travel plan:
 User's modification request: "{request.message}"
 
 Please modify the travel plan according to the above request.
+
+**🌏 LANGUAGE REQUIREMENT:**
+- Write all activity titles and descriptions in Korean language
+- Use Korean for all text content in the response
+- Only location names can be in English if they are proper nouns
 
 **🚨 IMPORTANT LIMITATIONS:**
 - **Activity addition limit**: Maximum 5 activities per day. Cannot add to days that already have 5 activities.

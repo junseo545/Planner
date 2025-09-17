@@ -1216,6 +1216,125 @@
   }
 }
 
+/* 평가 섹션 스타일 */
+.feedback-section {
+  margin-bottom: 2rem;
+}
+
+.feedback-prompt {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 20px;
+  padding: 2.5rem;
+  text-align: center;
+  border: 1px solid #bae6fd;
+  box-shadow: 0 8px 25px rgba(14, 165, 233, 0.1);
+}
+
+.feedback-prompt-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #0c4a6e;
+  margin: 0 0 1rem 0;
+  letter-spacing: -0.025em;
+}
+
+.feedback-prompt-description {
+  font-size: 1.125rem;
+  color: #0369a1;
+  margin: 0 0 2rem 0;
+  line-height: 1.6;
+}
+
+.feedback-prompt-button {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 25px rgba(14, 165, 233, 0.3);
+}
+
+.feedback-prompt-button:hover {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 35px rgba(14, 165, 233, 0.4);
+}
+
+.feedback-thanks {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-radius: 20px;
+  padding: 2.5rem;
+  text-align: center;
+  border: 1px solid #bbf7d0;
+  box-shadow: 0 8px 25px rgba(34, 197, 94, 0.1);
+}
+
+.feedback-thanks-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #166534;
+  margin: 0 0 1rem 0;
+  letter-spacing: -0.025em;
+}
+
+.feedback-thanks-description {
+  font-size: 1.125rem;
+  color: #15803d;
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* 반응형 평가 섹션 */
+@media (max-width: 768px) {
+  .feedback-prompt,
+  .feedback-thanks {
+    padding: 1.5rem;
+    border-radius: 16px;
+  }
+
+  .feedback-prompt-title,
+  .feedback-thanks-title {
+    font-size: 1.5rem;
+  }
+
+  .feedback-prompt-description,
+  .feedback-thanks-description {
+    font-size: 1rem;
+  }
+
+  .feedback-prompt-button {
+    padding: 0.875rem 1.5rem;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .feedback-prompt,
+  .feedback-thanks {
+    padding: 1rem;
+    border-radius: 12px;
+  }
+
+  .feedback-prompt-title,
+  .feedback-thanks-title {
+    font-size: 1.25rem;
+  }
+
+  .feedback-prompt-description,
+  .feedback-thanks-description {
+    font-size: 0.9rem;
+  }
+
+  .feedback-prompt-button {
+    width: 100%;
+    padding: 1rem;
+  }
+}
+
 
 
 /* 전체 여행 호텔 검색 스타일 */

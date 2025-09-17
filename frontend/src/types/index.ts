@@ -79,3 +79,16 @@ export interface TripResultProps {
   onReset: () => void;
   onTripUpdated?: (updatedPlan: TripPlan) => void;
 }
+
+export interface FeedbackData {
+  rating: number;
+  positivePoints: string;
+  negativePoints: string;
+  tripId?: string;
+  timestamp?: string;
+}
+
+export interface FeedbackFormProps {
+  onSubmit: (feedback: FeedbackData) => void;
+  onCancel?: () => void;
+}
