@@ -931,6 +931,13 @@
 }
 
 /* 반응형 디자인 */
+@media (max-width: 600px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}
+
 @media (max-width: 768px) {
   .result-container {
     padding: 0 0.5rem;
@@ -1005,8 +1012,23 @@
   }
   
   .overview-grid {
-    grid-template-columns: 1fr;
-    gap: 1rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+  }
+  
+  .overview-item {
+    padding: 1rem 0.75rem;
+    text-align: center;
+  }
+  
+  .overview-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  
+  .overview-label {
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
   }
   
   .events-summary-grid {
@@ -1169,16 +1191,24 @@
     padding: 0.875rem;
   }
   
+  .overview-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
   .overview-item {
-    padding: 1rem;
+    padding: 1rem 0.75rem;
+    text-align: center;
   }
   
   .overview-value {
     font-size: 1rem;
+    font-weight: 700;
   }
   
   .overview-label {
     font-size: 0.8rem;
+    margin-top: 0.25rem;
   }
   
   /* 모바일에서 지도 최적화 */

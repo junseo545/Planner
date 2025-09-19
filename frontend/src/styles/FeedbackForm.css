@@ -157,23 +157,30 @@
   min-height: 100px;
   transition: all 0.2s ease;
   background: white;
+  color: #0f172a;
+  font-weight: 500;
 }
 
 .feedback-textarea:focus {
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a;
 }
 
 .feedback-textarea:disabled {
   background: #f8fafc;
-  color: #94a3b8;
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8;
   cursor: not-allowed;
 }
 
 .feedback-textarea::placeholder {
   color: #94a3b8;
   font-style: italic;
+  -webkit-text-fill-color: #94a3b8;
+  opacity: 1;
 }
 
 .feedback-actions {
@@ -265,6 +272,9 @@
 
   .feedback-textarea {
     font-size: 16px; /* iOS 줌 방지 */
+    color: #0f172a !important;
+    font-weight: 500;
+    -webkit-text-fill-color: #0f172a; /* iOS Safari에서 텍스트 색상 강제 적용 */
   }
 
   .feedback-submit-button {
@@ -298,5 +308,8 @@
 
   .feedback-textarea {
     min-height: 80px;
+    color: #0f172a !important;
+    font-weight: 500;
+    -webkit-text-fill-color: #0f172a; /* iOS Safari에서 텍스트 색상 강제 적용 */
   }
 }
