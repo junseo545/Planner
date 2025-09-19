@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import TripPlanner from './components/TripPlanner';
 import TripResult from './components/TripResult';
-import { TripPlan } from './types';
+import { TripPlan, FeedbackData } from './types';
 import { trackPageView } from './utils/analytics';
+import { saveFeedbackToSupabase } from './lib/feedbackService';
 
 const App: React.FC = () => {
   const [tripPlan, setTripPlan] = useState<TripPlan | null>(null);
@@ -56,6 +57,31 @@ const App: React.FC = () => {
       console.log('Updated trip plan in session storage');
     } catch (error) {
       console.error('Error updating trip plan in session storage:', error);
+    }
+  };
+
+  const handleFeedbackSubmit = async (feedbackData: FeedbackData) => {
+    try {
+      // 여행 계획 정보 추가
+      const enhancedFeedback: FeedbackData = {
+        ...feedbackData,
+        tripId: tripPlan?.id || `trip_${Date.now()}`,
+        destination: tripPlan?.destination || 'unknown',
+        duration: tripPlan?.duration || 'unknown',
+        timestamp: new Date().toISOString()
+      };
+
+      const result = await saveFeedbackToSupabase(enhancedFeedback);
+      
+      if (result.success) {
+        console.log('피드백이 성공적으로 저장되었습니다.');
+      } else {
+        console.error('피드백 저장 실패:', result.error);
+        throw new Error(result.error || '피드백 저장에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('피드백 제출 오류:', error);
+      throw error;
     }
   };
 

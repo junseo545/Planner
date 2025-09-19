@@ -122,6 +122,30 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
     return minEnd.toISOString().split('T')[0];
   };
 
+  // 시작일 변경 시 종료일 초기화 및 유효성 검사
+  const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newStartDate = e.target.value;
+    setFormData(prev => {
+      const newFormData = { ...prev, start_date: newStartDate };
+      
+      // 시작일이 변경되면 종료일 초기화
+      if (prev.start_date !== newStartDate) {
+        newFormData.end_date = '';
+      }
+      
+      // 기존 종료일이 새로운 최대/최소 범위를 벗어나면 초기화
+      if (prev.end_date) {
+        const minEnd = getMinEndDate(newStartDate);
+        const maxEnd = getMaxEndDate(newStartDate);
+        if (prev.end_date < minEnd || prev.end_date > maxEnd) {
+          newFormData.end_date = '';
+        }
+      }
+      
+      return newFormData;
+    });
+  };
+
   // 입력값 변경 처리
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
     const { name, value } = e.target;
@@ -448,7 +472,23 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
 
   const goBack = (): void => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+      // 단계 이름 매핑
+      const stepNames = {
+        1: '지역선택',
+        2: '인원수선택',
+        3: '동반자선택',
+        4: '여행스타일선택',
+        5: '여행페이스선택',
+        6: '추가정보입력'
+      };
+      
+      const currentStepName = stepNames[currentStep as keyof typeof stepNames] || '알수없음';
+      const previousStep = currentStep - 1;
+      
+      // Analytics 이벤트 추적
+      analyticsEvents.backButtonClicked(currentStep, currentStepName, previousStep);
+      
+      setCurrentStep(previousStep);
     }
   };
 
@@ -636,7 +676,7 @@ const TripPlanner: React.FC<TripPlannerProps> = ({ onTripGenerated, loading, set
             type="date"
             name="start_date"
             value={formData.start_date}
-            onChange={handleInputChange}
+            onChange={handleStartDateChange}
             className="form-input"
             min={new Date().toISOString().split('T')[0]}
             required

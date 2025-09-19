@@ -16,6 +16,7 @@ export interface HotelInfo {
 }
 
 export interface TripPlan {
+  id?: string;
   destination: string;
   duration: string;
   itinerary: Array<{
@@ -85,6 +86,8 @@ export interface FeedbackData {
   positivePoints: string;
   negativePoints: string;
   tripId?: string;
+  destination?: string;
+  duration?: string;
   timestamp?: string;
 }
 

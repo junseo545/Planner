@@ -65,24 +65,6 @@ export const analyticsEvents = {
     });
   },
 
-  // 숙박 검색
-  accommodationSearch: (destination: string, checkIn: string, checkOut: string) => {
-    trackEvent('숙박_검색', {
-      destination,
-      check_in_date: checkIn,
-      check_out_date: checkOut,
-      event_category: 'accommodation',
-    });
-  },
-
-  // 숙박 선택
-  accommodationSelected: (hotelName: string, price: number) => {
-    trackEvent('숙박_선택', {
-      hotel_name: hotelName,
-      price,
-      event_category: 'accommodation',
-    });
-  },
 
   // 에러 발생
   errorOccurred: (errorType: string, errorMessage: string) => {
@@ -108,6 +90,145 @@ export const analyticsEvents = {
       interaction_type: interactionType,
       details,
       event_category: 'map',
+    });
+  },
+
+  // 여행 계획 단계별 진행 추적
+  stepCompleted: (stepNumber: number, stepName: string, stepData?: Record<string, any>) => {
+    trackEvent('단계_완료', {
+      step_number: stepNumber,
+      step_name: stepName,
+      step_data: stepData,
+      event_category: 'step_progress',
+    });
+  },
+
+  // 단계 이탈 (뒤로가기, 취소 등)
+  stepAbandoned: (stepNumber: number, stepName: string, reason?: string) => {
+    trackEvent('단계_이탈', {
+      step_number: stepNumber,
+      step_name: stepName,
+      abandonment_reason: reason,
+      event_category: 'step_progress',
+    });
+  },
+
+  // 뒤로가기 버튼 클릭
+  backButtonClicked: (currentStep: number, currentStepName: string, previousStep?: number) => {
+    trackEvent('뒤로가기_클릭', {
+      current_step: currentStep,
+      current_step_name: currentStepName,
+      previous_step: previousStep,
+      event_category: 'navigation',
+    });
+  },
+
+  // 결과 화면 상호작용
+  resultItemClicked: (itemType: string, itemName: string, itemId?: string) => {
+    trackEvent('결과_항목_클릭', {
+      item_type: itemType, // 'hotel', 'attraction', 'restaurant' 등
+      item_name: itemName,
+      item_id: itemId,
+      event_category: 'result_interaction',
+    });
+  },
+
+
+  // 결과 화면에서 관광지 상세보기
+  attractionDetailsViewed: (attractionName: string, attractionId: string, category?: string) => {
+    trackEvent('관광지_상세보기', {
+      attraction_name: attractionName,
+      attraction_id: attractionId,
+      category,
+      event_category: 'attraction',
+    });
+  },
+
+  // 숙박 예약 사이트 링크 클릭
+  accommodationLinkClicked: (siteName: string, hotelName: string, destination: string) => {
+    trackEvent('숙박사이트_클릭', {
+      site_name: siteName, // '여기어때', '부킹닷컴', '아고다' 등
+      hotel_name: hotelName,
+      destination,
+      event_category: 'external_link',
+    });
+  },
+
+
+  // 결과 화면에서 일정 저장
+  scheduleSaved: (totalDays: number, totalPlaces: number) => {
+    trackEvent('일정_저장', {
+      total_days: totalDays,
+      total_places: totalPlaces,
+      event_category: 'schedule_management',
+    });
+  },
+
+  // 결과 화면에서 지도 보기 토글
+  mapViewToggled: (isMapView: boolean) => {
+    trackEvent('지도보기_토글', {
+      is_map_view: isMapView,
+      event_category: 'view_toggle',
+    });
+  },
+
+  // 결과 화면에서 필터 적용
+  resultFilterApplied: (filterType: string, filterValue: string, resultsCount: number) => {
+    trackEvent('결과_필터_적용', {
+      filter_type: filterType, // 'category', 'price', 'rating', 'distance' 등
+      filter_value: filterValue,
+      results_count: resultsCount,
+      event_category: 'filtering',
+    });
+  },
+
+  // 결과 화면에서 정렬 변경
+  resultSorted: (sortBy: string, sortOrder: string, resultsCount: number) => {
+    trackEvent('결과_정렬', {
+      sort_by: sortBy, // 'price', 'rating', 'distance', 'name' 등
+      sort_order: sortOrder, // 'asc', 'desc'
+      results_count: resultsCount,
+      event_category: 'sorting',
+    });
+  },
+
+  // 피드백 배너 관련 이벤트
+  feedbackBannerShown: () => {
+    trackEvent('피드백배너_표시', {
+      event_category: 'feedback',
+    });
+  },
+
+  feedbackBannerClicked: () => {
+    trackEvent('피드백배너_클릭', {
+      event_category: 'feedback',
+    });
+  },
+
+  feedbackBannerDismissed: () => {
+    trackEvent('피드백배너_거부', {
+      event_category: 'feedback',
+    });
+  },
+
+  feedbackFormOpened: () => {
+    trackEvent('피드백폼_열림', {
+      event_category: 'feedback',
+    });
+  },
+
+  feedbackFormClosed: () => {
+    trackEvent('피드백폼_닫힘', {
+      event_category: 'feedback',
+    });
+  },
+
+  feedbackSubmitted: (rating: number, hasPositiveFeedback: boolean, hasNegativeFeedback: boolean) => {
+    trackEvent('피드백_제출', {
+      rating,
+      has_positive_feedback: hasPositiveFeedback,
+      has_negative_feedback: hasNegativeFeedback,
+      event_category: 'feedback',
     });
   },
 };

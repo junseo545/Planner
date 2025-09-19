@@ -4,9 +4,9 @@ export interface FeedbackData {
   rating: number
   positivePoints: string
   negativePoints: string
-  tripId: string
-  destination: string
-  duration: string
+  tripId?: string
+  destination?: string
+  duration?: string
   timestamp?: string
 }
 

@@ -64,6 +64,25 @@
   flex: 1;
 }
 
+/* 모바일에서 진행 단계 개선 */
+@media (max-width: 768px) {
+  .progress-bar {
+    margin-bottom: 2rem;
+    padding: 0 0.5rem;
+  }
+  
+  .progress-bar::before {
+    top: 20px;
+    left: 1rem;
+    right: 1rem;
+    height: 2px;
+  }
+  
+  .progress-step {
+    padding: 0.25rem;
+  }
+}
+
 .progress-number {
   width: 48px;
   height: 48px;
@@ -683,22 +702,29 @@
   }
   
   .progress-bar {
-    flex-direction: column;
-    gap: 1rem;
-    padding: 0;
+    flex-direction: row;
+    gap: 0.5rem;
+    padding: 0 0.5rem;
     margin-bottom: 2rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   
   .progress-bar::before {
-    display: none;
+    display: block;
+    top: 20px;
+    left: 1rem;
+    right: 1rem;
+    height: 2px;
   }
   
   .progress-step {
-    width: 100%;
-    padding: 0.75rem;
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    flex: 0 0 auto;
+    min-width: 80px;
+    padding: 0.5rem 0.25rem;
+    background: transparent;
+    border-radius: 8px;
+    box-shadow: none;
   }
   
   .progress-number {
@@ -784,11 +810,32 @@
   .form-select {
     font-size: 16px;
     min-height: 48px;
+    border-radius: 10px;
+    padding: 0.875rem 1rem;
   }
   
   .guests-select {
     font-size: 1.125rem;
     min-height: 48px;
+  }
+  
+  /* 모바일에서 폼 섹션 개선 */
+  .form-section {
+    margin-bottom: 1.5rem;
+  }
+  
+  .form-label {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .date-hint {
+    font-size: 0.8rem;
+    color: #64748b;
+    font-weight: 400;
   }
   
   /* 모바일에서 선택 요약 개선 */
@@ -813,15 +860,22 @@
   .planner-title {
     font-size: 1.75rem;
     line-height: 1.1;
+    margin-bottom: 0.5rem;
   }
   
   .planner-subtitle {
     font-size: 0.9rem;
+    line-height: 1.4;
+  }
+  
+  .progress-bar {
+    margin-bottom: 1.5rem;
+    padding: 0 0.25rem;
   }
   
   .progress-step {
-    margin-bottom: 0.75rem;
-    padding: 0.5rem;
+    min-width: 70px;
+    padding: 0.25rem;
   }
   
   .progress-number {
@@ -831,17 +885,20 @@
   }
   
   .progress-label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
+    line-height: 1.1;
   }
   
   .step-title {
     font-size: 1.25rem;
     margin-bottom: 1rem;
+    text-align: center;
   }
   
   .option-button {
     padding: 1rem 0.5rem;
     min-height: 70px;
+    border-radius: 10px;
   }
   
   .option-icon {

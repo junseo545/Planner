@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ArrowLeft, ExternalLink, Download, MapPin, Calendar, DollarSign, ChevronUp, Send } from 'lucide-react';
 import { TripResultProps, FeedbackData } from '../types';
 import TripMap from './TripMap';
-import FeedbackForm from './FeedbackForm';
+import FeedbackBanner from './FeedbackBanner';
 import { analyticsEvents } from '../utils/analytics';
 import { saveFeedbackToSupabase } from '../lib/feedbackService.js';
 import '../styles/FeedbackForm.css';
@@ -10,7 +10,6 @@ import '../styles/FeedbackForm.css';
 const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdated }): React.JSX.Element => {
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState(1);
-  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   // 지도에 표시할 위치 데이터 준비 (선택된 일차만)
@@ -107,7 +106,11 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
   const handleFeedbackSubmit = async (feedback: FeedbackData): Promise<void> => {
     try {
       // GA4 이벤트 추적
-      analyticsEvents.buttonClick('feedback_submitted', 'trip_result');
+      analyticsEvents.feedbackSubmitted(
+        feedback.rating,
+        feedback.positivePoints.trim().length > 0,
+        feedback.negativePoints.trim().length > 0
+      );
 
       // Supabase에 피드백 저장
       const feedbackData = {
@@ -122,8 +125,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
 
       if (result.success) {
         setFeedbackSubmitted(true);
-        setShowFeedbackForm(false);
-        alert('피드백이 성공적으로 제출되었습니다! 소중한 의견 감사합니다. 🙏');
+        console.log('피드백이 성공적으로 제출되었습니다!');
       } else {
         throw new Error(result.error || '피드백 제출 실패');
       }
@@ -142,8 +144,7 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
       localStorage.setItem('trip_feedbacks', JSON.stringify(feedbacks));
       
       setFeedbackSubmitted(true);
-      setShowFeedbackForm(false);
-      alert('피드백이 로컬에 저장되었습니다! 소중한 의견 감사합니다. 🙏');
+      console.log('피드백이 로컬에 저장되었습니다!');
     }
   };
 
@@ -329,32 +330,11 @@ const TripResult: React.FC<TripResultProps> = ({ tripPlan, onReset, onTripUpdate
         </div>
       </div>
 
-      {/* 평가 폼 */}
+      {/* 피드백 배너 */}
       {!feedbackSubmitted && (
-        <div className="feedback-section">
-          {!showFeedbackForm ? (
-            <div className="feedback-prompt">
-              <h2 className="feedback-prompt-title">여행 계획이 도움이 되셨나요?</h2>
-              <p className="feedback-prompt-description">
-                소중한 피드백을 주시면 더 나은 서비스를 제공할 수 있습니다.
-              </p>
-              <button
-                onClick={() => {
-                  analyticsEvents.buttonClick('feedback_form_open', 'trip_result');
-                  setShowFeedbackForm(true);
-                }}
-                className="feedback-prompt-button"
-              >
-                평가하기
-              </button>
-            </div>
-          ) : (
-            <FeedbackForm
-              onSubmit={handleFeedbackSubmit}
-              onCancel={() => setShowFeedbackForm(false)}
-            />
-          )}
-        </div>
+        <FeedbackBanner 
+          onSubmit={handleFeedbackSubmit}
+        />
       )}
 
       {/* 평가 완료 메시지 */}
